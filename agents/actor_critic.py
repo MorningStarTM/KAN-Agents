@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchsummary import summary
 from .kan import KANLayer
+import os
 
 class GenericNetwork(nn.Module):
     def __init__(self, HP:dict):
@@ -33,31 +34,80 @@ class GenericNetwork(nn.Module):
 
 
 class KANActorCriticNetwork(nn.Module):
-    def __init__(self, HP:dict):
+    def __init__(self, input_dims=8, fc1=16, fc2=32, n_actions=4, lr=0.0003):
         """
         Args:
             HP: dict - (alpha, input_dim, fc1, fc2, n_action)
         """
         super(KANActorCriticNetwork, self).__init__()
-        self.input_dims = HP['input_dim']
-        self.fc1_dim = HP['fc1']
-        self.fc2_dim = HP['fc2']
-        self.n_actions = HP['n_action']
-        self.fc1 = KANLayer([self.input_dims, 256, 512])
-        self.pi = KANLayer([512, 256, self.n_actions])
-        self.v = KANLayer([512, 128, 1])
-        self.optimizer = optim.Adam(self.parameters(), lr=HP['lr'], weight_decay=1e-4)
+        self.input_dims = input_dims
+        self.fc1_dim = fc1
+        self.fc2_dim = fc2
+        self.n_actions = n_actions
+        self.fc1 = KANLayer([self.input_dims, 16, 32])
+        self.pi = KANLayer([32, 16, self.n_actions])
+        self.v = KANLayer([32, 8, 1])
+        self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(self.device)
 
     def forward(self, observation):
         state = torch.Tensor(observation).to(self.device)
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
+        x = self.fc1(state)
         pi = self.pi(x)
         v = self.v(x)
         return (pi, v)
+    
+
+
+
+class ACAgent(object):
+    """ Agent class for use with a single actor critic network that shares
+        the lowest layers. For use with more complex environments such as
+        the discrete lunar lander
+    """
+    def __init__(self, alpha, input_dims, gamma=0.99,
+                 layer1_size=16, layer2_size=32, action_dim=2):
+        self.gamma = gamma
+        self.actor_critic = KANActorCriticNetwork()
+
+        self.log_probs = None
+
+    def choose_action(self, observation):
+        probabilities, _ = self.actor_critic.forward(observation)
+        probabilities = F.softmax(probabilities, dim=-1)
+        action_probs = torch.distributions.Categorical(probabilities)
+        action = action_probs.sample()
+        log_probs = action_probs.log_prob(action)
+        self.log_probs = log_probs
+
+        return action.item()
+
+    def learn(self, state, reward, new_state, done):
+        self.actor_critic.optimizer.zero_grad()
+
+        _, critic_value_ = self.actor_critic.forward(new_state)
+        _, critic_value = self.actor_critic.forward(state)
+        reward = torch.tensor(reward, dtype=torch.float).to(self.actor_critic.device)
+
+        delta = reward + self.gamma*critic_value_*(1-int(done)) - critic_value
+
+        actor_loss = -self.log_probs * delta
+        critic_loss = delta**2
+
+        (actor_loss + critic_loss).backward()
+
+        self.actor_critic.optimizer.step()
+
+    
+    def save_model(self, path):
+        os.makedirs(path, exist_ok=True)
+        torch.save(self.actor_critic.state_dict(), os.path.join(path, "actor_critic.pth"))
+
+    def load_model(self, path):
+        self.actor_critic.load_state_dict(torch.load(path))
+
 
 
 
