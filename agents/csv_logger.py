@@ -13,7 +13,7 @@ class CSVLogger:
 
     def log(self):
         if "result.csv" in os.listdir("result"):
-            df = pd.read_csv("result\\result_kan.csv")
+            df = pd.read_csv("result\\result.csv")
         else:
             df = pd.DataFrame({})
             df.to_csv("result\\result.csv")

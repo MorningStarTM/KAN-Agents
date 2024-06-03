@@ -74,8 +74,8 @@ class Trainer:
         self.total_duration = total_end_time - total_start_time
         print(f"Total Time: {self.total_duration} seconds")
 
-        filename = "result_kan.png"
-        np.save("reward", self.history)
+        filename = "result\\result_kan.png"
+        #np.save("reward", self.history)
         plot_learning(self.history, filename=filename, window=50)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
