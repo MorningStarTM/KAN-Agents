@@ -12,14 +12,17 @@ class CSVLogger:
         self.time = kwargs.get('time', 0)
 
     def log(self):
-        df = pd.read_csv("result.csv")
+        if "result.csv" in os.listdir("result"):
+            df = pd.read_csv("result\\result_kan.csv")
+        else:
+            df = pd.DataFrame({})
+            df.to_csv("result\\result.csv")
+        
         data = pd.DataFrame({'agent_name': [self.agent.name],
-                            'f1':[self.agent.fc1_dims],
-                             'f2':[self.agent.fc2_dims],
                              'alpha':[self.agent.alpha],
                              'epochs':[self.epochs],
                              'c_point':[self.convergence_point],
                              'time':[self.time]}
                              )
         data = pd.concat([df, data], ignore_index=True)
-        data.to_csv("result_kan.csv")
+        data.to_csv("result\\result.csv")
