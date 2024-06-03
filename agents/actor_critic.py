@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from .kan import KANLayer
 import os
-from utils import plotLearning
 
 
 class KANActorCriticNetwork(nn.Module):
@@ -43,34 +42,26 @@ class KANActorCriticNetwork(nn.Module):
 
 
 class ActorCriticNetwork(nn.Module):
-    def __init__(self, input_dims=8, fc1=16, fc2=8, n_actions=4, lr=0.0003):
-        """
-        This class for build actor acritic network 
-
-        Args:
-            HP: dict - (alpha, input_dim, fc1, fc2, n_action)
-
-        Returns:
-            pi (tensor) - policy
-            v (tensor) - value
-        """
+    def __init__(self, alpha=0.0003, input_dims=8, fc1_dims=16, fc2_dims=8,
+                 n_actions=4):
         super(ActorCriticNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dim = fc1
-        self.fc2_dim = fc2
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.fc1 = nn.Linear(input_dims, self.fc1_dim)
-        self.fc2 = nn.Linear(self.fc1_dim, self.fc2_dim)
-        self.pi = nn.Linear(self.fc2_dim, self.n_actions)
-        self.v = nn.Linear(self.fc2_dim, 1)
-        self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
+        self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.pi = nn.Linear(self.fc2_dims, n_actions)
+        self.v = nn.Linear(self.fc2_dims, 1)
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cuda:1')
         self.to(self.device)
 
     def forward(self, observation):
         state = torch.Tensor(observation).to(self.device)
-        x = self.fc1(state)
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
         pi = self.pi(x)
         v = self.v(x)
         return (pi, v)
