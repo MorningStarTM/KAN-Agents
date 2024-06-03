@@ -5,8 +5,7 @@ import numpy as np
 
 
 class CSVLogger:
-    def __init__(self, filename, agent, **kwargs):
-        self.filename = filename
+    def __init__(self, agent, **kwargs):
         self.agent = agent
         self.epochs = kwargs.get('epochs', 0)
         self.convergence_point = kwargs.get('c_point', 0)

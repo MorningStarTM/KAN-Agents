@@ -49,11 +49,12 @@ class ActorCriticNetwork(nn.Module):
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
+        self.alpha = alpha
         self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         self.pi = nn.Linear(self.fc2_dims, n_actions)
         self.v = nn.Linear(self.fc2_dims, 1)
-        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
 
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cuda:1')
         self.to(self.device)
