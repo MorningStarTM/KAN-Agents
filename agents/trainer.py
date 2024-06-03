@@ -66,7 +66,5 @@ class Trainer:
         self.total_duration = total_end_time - total_start_time
         print(f"Total Time : {self.total_duration}")
 
-        self.plot_resource_usage()
-        
         filename = "result.png"
         plot_learning(self.history, filename=filename, window=50)
