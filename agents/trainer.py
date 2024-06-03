@@ -1,9 +1,10 @@
-from .utils import plot_learning
+from .utils import plot_learning, plot_learning_curve
 import GPUtil
 import matplotlib.pyplot as plt
 import time
 import numpy as np
 from .csv_logger import CSVLogger
+
 
 
 import os
@@ -81,4 +82,45 @@ class Trainer:
         self.csvlogger.log()
 
     
+
+class PPOTrainer:
+    def __init__(self, agent, env, epochs, N):
+        self.best_score = 0
+        self.env = env
+        self.score_history = []
+        self.learn_iters = 0
+        self.avg_score = 0
+        self.n_steps = 0
+        self.agent = agent
+        self.epochs = epochs
+        self.N = N
+        self.n_games = 300
+
+    
+    def train(self, figure_file):
+        for i in range(self.n_games):
+            observation, _ = self.env.reset()
+            done = False
+            score = 0
+            while not done:
+                action, prob, val = self.agent.choose_action(observation)
+                observation_, reward, done, info, _ = self.env.step(action)
+                self.n_steps += 1
+                score += reward
+                self.agent.remember(observation, action, prob, val, reward, done)
+                if self.n_steps % self.N == 0:
+                    self.agent.learn()
+                    self.learn_iters += 1
+                observation = observation_
+            self.score_history.append(score)
+            avg_score = np.mean(self.score_history[-100:])
+
+            if avg_score > self.best_score:
+                self.best_score = avg_score
+                self.agent.save_models()
+
+        print('episode', i, 'score %.1f' % score, 'avg score %.1f' % self.avg_score,
+                'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
+        x = [i+1 for i in range(len(self.score_history))]
+        plot_learning_curve(x, self.score_history, figure_file)
 

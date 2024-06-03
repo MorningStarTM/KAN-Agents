@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
 from torch.distributions.categorical import Categorical
-from kan import KANLayer
+from .kan import KANLayer
 
 class PPOMemory:
     def __init__(self, batch_size):
@@ -206,7 +206,7 @@ class ActorNetwork(nn.Module):
 
         self.checkpoint_file = os.path.join(chkpt_dir, 'actor_torch_ppo')
         self.actor = nn.Sequential(
-                nn.Linear(*input_dims, fc1_dims),
+                nn.Linear(input_dims, fc1_dims),
                 nn.ReLU(),
                 nn.Linear(fc1_dims, fc2_dims),
                 nn.ReLU(),
@@ -239,7 +239,7 @@ class CriticNetwork(nn.Module):
 
         self.checkpoint_file = os.path.join(chkpt_dir, 'critic_torch_ppo')
         self.critic = nn.Sequential(
-                nn.Linear(*input_dims, fc1_dims),
+                nn.Linear(input_dims, fc1_dims),
                 nn.ReLU(),
                 nn.Linear(fc1_dims, fc2_dims),
                 nn.ReLU(),
@@ -264,7 +264,7 @@ class CriticNetwork(nn.Module):
 
 
 class PPOAgent:
-    def __init__(self, n_actions, input_dims, gamma=0.99, alpha=0.0003, gae_lambda=0.95,
+    def __init__(self, n_actions=4, input_dims=8, gamma=0.99, alpha=0.0003, gae_lambda=0.95,
             policy_clip=0.2, batch_size=64, n_epochs=10):
         self.gamma = gamma
         self.policy_clip = policy_clip
