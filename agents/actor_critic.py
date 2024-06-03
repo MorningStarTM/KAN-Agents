@@ -79,7 +79,11 @@ class KANACAgent(object):
     """
     def __init__(self, alpha, input_dims, gamma=0.99,
                  layer1_size=16, layer2_size=32, action_dim=2):
+        self.name = "KAN based Actor-Critic Agent"
         self.gamma = gamma
+        self.fc1_dims = layer1_size
+        self.fc2_dims = layer2_size
+        self.alpha = alpha
         self.actor_critic = KANActorCriticNetwork()
 
         self.log_probs = None
@@ -127,6 +131,7 @@ class ACAgent(object):
     """
     def __init__(self, alpha, input_dims, gamma=0.99,
                  layer1_size=16, layer2_size=32, action_dim=2):
+        self.name = "Vanilla Actor-Critic Agent"
         self.gamma = gamma
         self.fc1_dims = layer1_size
         self.fc2_dims = layer2_size
