@@ -26,9 +26,9 @@ class Trainer:
         self.history = np.array([])  # Initialize as empty NumPy array
         self.time_history = np.array([])  # Initialize as empty NumPy array
         self.gpu_usage = np.array([])  # Initialize as empty NumPy array
-        self.total_duration = 0
         self.c_point = 0
-        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point)
+        self.total_duration = 0
+        
 
     def monitor_resources(self):
         """
@@ -77,5 +77,8 @@ class Trainer:
         filename = "result_kan.png"
         np.save("reward", self.history)
         plot_learning(self.history, filename=filename, window=50)
+        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
+
+    
 
