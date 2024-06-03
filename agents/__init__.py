@@ -1,4 +1,4 @@
-from .actor_critic import KANActorCriticNetwork
-from .actor_critic import ACAgent
-from .actor_critic import Trainer
+from .actor_critic import KANActorCriticNetwork, ActorCriticNetwork
+from .actor_critic import ACAgent, KANACAgent
+from .trainer import Trainer
 from .kan import KANLayer
