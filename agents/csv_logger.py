@@ -10,6 +10,7 @@ class CSVLogger:
         self.epochs = kwargs.get('epochs', 0)
         self.convergence_point = kwargs.get('c_point', 0)
         self.time = kwargs.get('time', 0)
+        self.best_score = kwargs.get('best_score', 0.0)
 
     def log(self):
         if "result.csv" in os.listdir("result"):
@@ -22,7 +23,9 @@ class CSVLogger:
                              'alpha':[self.agent.alpha],
                              'epochs':[self.epochs],
                              'c_point':[self.convergence_point],
-                             'time':[self.time]}
+                             'time':[self.time],
+                             'best_score':[self.best_score]}
+                             
                              )
         data = pd.concat([df, data], ignore_index=True)
         data.to_csv("result\\result.csv")

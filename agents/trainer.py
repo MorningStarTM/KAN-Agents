@@ -84,20 +84,23 @@ class Trainer:
     
 
 class PPOTrainer:
-    def __init__(self, agent, env, epochs, N):
-        self.best_score = 0
+    def __init__(self, agent, env, N, n_games, n_epochs):
+        self.agent = agent
         self.env = env
+        self.n_games = n_games
+        self.N = N
+        self.n_epochs = n_epochs
+        self.best_score = env.reward_range[0]
         self.score_history = []
+
         self.learn_iters = 0
         self.avg_score = 0
         self.n_steps = 0
-        self.agent = agent
-        self.epochs = epochs
-        self.N = N
-        self.n_games = 300
 
-    
     def train(self, figure_file):
+        total_start_time = time.time()
+
+
         for i in range(self.n_games):
             observation, _ = self.env.reset()
             done = False
@@ -113,14 +116,23 @@ class PPOTrainer:
                     self.learn_iters += 1
                 observation = observation_
             self.score_history.append(score)
-            avg_score = np.mean(self.score_history[-100:])
+            self.avg_score = np.mean(self.score_history[-100:])
 
-            if avg_score > self.best_score:
-                self.best_score = avg_score
+            if self.avg_score > self.best_score:
+                self.best_score = self.avg_score
                 self.agent.save_models()
 
-        print('episode', i, 'score %.1f' % score, 'avg score %.1f' % self.avg_score,
-                'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
+            
+            print('episode', i, 'score %.1f' % score, 'avg score %.1f' % self.avg_score,
+                    'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
+            
+            if self.avg_score >= 200:
+                self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_epochs, c_point=i, time=self.total_duration)
+                self.csvlogger.log()
+                break
+        total_end_time = time.time()
+        self.total_duration = total_end_time - total_start_time
+
         x = [i+1 for i in range(len(self.score_history))]
         plot_learning_curve(x, self.score_history, figure_file)
 
