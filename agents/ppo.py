@@ -114,6 +114,7 @@ class KANPPOAgent:
         self.n_epochs = n_epochs
         self.gae_lambda = gae_lambda
         self.name = "KAN-PPO"
+        self.alpha = alpha
 
         self.actor = KANActorNetwork(n_actions, input_dims, alpha)
         self.critic = KANCriticNetwork(input_dims, alpha)
@@ -271,6 +272,7 @@ class PPOAgent:
         self.n_epochs = n_epochs
         self.gae_lambda = gae_lambda
         self.name = "PPO-Agent"
+        self.alpha = alpha
 
         self.actor = ActorNetwork(n_actions, input_dims, alpha)
         self.critic = CriticNetwork(input_dims, alpha)

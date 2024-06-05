@@ -96,6 +96,7 @@ class PPOTrainer:
         self.learn_iters = 0
         self.avg_score = 0
         self.n_steps = 0
+        
 
     def train(self, figure_file):
         total_start_time = time.time()
@@ -127,11 +128,13 @@ class PPOTrainer:
                     'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
             
             if self.avg_score >= 200:
-                self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_epochs, c_point=i, time=self.total_duration)
-                self.csvlogger.log()
                 break
         total_end_time = time.time()
         self.total_duration = total_end_time - total_start_time
+
+        
+        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_epochs, c_point=i, time=self.total_duration)
+        self.csvlogger.log()
 
         x = [i+1 for i in range(len(self.score_history))]
         plot_learning_curve(x, self.score_history, figure_file)
