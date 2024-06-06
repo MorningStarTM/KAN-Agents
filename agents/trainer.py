@@ -1,10 +1,10 @@
-from .utils import plot_learning, plot_learning_curve
+from .utils import plot_learning, plot_learning_curve, plotLearning
 import GPUtil
 import matplotlib.pyplot as plt
 import time
 import numpy as np
 from .csv_logger import CSVLogger
-
+from collections import deque
 
 
 import os
@@ -139,3 +139,51 @@ class PPOTrainer:
         x = [i+1 for i in range(len(self.score_history))]
         plot_learning_curve(x, self.score_history, figure_file)
 
+
+class QTrainer:
+    def __init__(self, agent, env, n_episode=1000):
+        self.agent = agent
+        self.env = env
+        self.n_episode = n_episode
+        self.best_score = 0
+
+
+    def train(self, filename):
+        scores, eps_history = [], []
+        total_start_time = time.time()
+
+        for i in range(self.n_episode):
+
+            score = 0
+            done = False
+            observation,_ = self.env.reset()
+            while not done:
+                action = self.agent.choose_action(observation)
+                observation_, reward, done, info, _ = self.env.step(action)
+                score += reward
+                self.agent.store_transition(observation, action, reward, 
+                                        observation_, done)
+                self.agent.learn()
+                observation = observation_
+            scores.append(score)
+            eps_history.append(self.agent.epsilon)
+
+            avg_score = np.mean(scores[-100:])
+            if self.best_score < score:
+                self.best_score = score
+                self.agent.save_model("models\\dqn.pth")
+
+            print('episode ', i, 'score %.2f' % score,
+                    'average score %.2f' % avg_score,
+                    'epsilon %.2f' % self.agent.epsilon)
+            
+        total_end_time = time.time()
+        self.total_duration = total_end_time - total_start_time
+
+        
+        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_episode, c_point=i, time=self.total_duration)
+        self.csvlogger.log()
+
+        x = [i+1 for i in range(self.n_episode)]
+        filename = 'lunar_lander.png'
+        plotLearning(x, scores, eps_history, filename)
