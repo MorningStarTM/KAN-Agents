@@ -10,15 +10,16 @@ from .kan import KANLayer
 class KQNetwork(nn.Module):
     def __init__(self, lr, input_dims, fc1_dims, fc2_dims,
                  n_actions):
-        super(QNetwork, self).__init__()
+        super(KQNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
+        self.alpha = lr
         self.fc1 = KANLayer([self.input_dims, self.fc1_dims, self.fc2_dims])
         self.fc2 = KANLayer([self.fc2_dims, self.fc1_dims, self.n_actions])
 
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
         self.loss = nn.MSELoss()
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
@@ -40,12 +41,13 @@ class QNetwork(nn.Module):
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
+        self.alpha = lr
         self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         self.fc3 = nn.Linear(self.fc2_dims, self.fc1_dims)
         self.fc4 = nn.Linear(self.fc1_dims, self.n_actions)
 
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
         self.loss = nn.MSELoss()
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
@@ -98,7 +100,9 @@ class DQNAgent:
 
         self.Q_eval = QNetwork(lr, n_actions=n_actions,
                                    input_dims=input_dims,
-                                   fc1_dims=16, fc2_dims=32)
+                                   fc1_dims=256, fc2_dims=512)
+        
+        self.alpha = self.Q_eval.alpha
         self.state_memory = np.zeros((self.mem_size, input_dims),
                                      dtype=np.float32)
         self.new_state_memory = np.zeros((self.mem_size, input_dims),
@@ -225,6 +229,8 @@ class KDQNAgent:
                                    input_dims=input_dims,
                                    fc1_dims=16, fc2_dims=32)
         
+        self.alpha = self.Q_eval.alpha
+        
         self.state_memory = np.zeros((self.mem_size, input_dims),
                                      dtype=np.float32)
         self.new_state_memory = np.zeros((self.mem_size, input_dims),
@@ -285,5 +291,48 @@ class KDQNAgent:
 
         self.iter_cntr += 1
         self.epsilon = self.epsilon - self.eps_dec if self.epsilon > self.eps_min else self.eps_min
+
+
+    def save_model(self, filename):
+        """
+        Save the model's state to a file.
+        
+        Args:
+            filename (str): The name of the file to save the model's state.
+        """
+        checkpoint = {
+            'model_state_dict': self.Q_eval.state_dict(),
+            'optimizer_state_dict': self.Q_eval.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'mem_cntr': self.mem_cntr,
+            'iter_cntr': self.iter_cntr,
+            'state_memory': self.state_memory,
+            'new_state_memory': self.new_state_memory,
+            'action_memory': self.action_memory,
+            'reward_memory': self.reward_memory,
+            'terminal_memory': self.terminal_memory
+        }
+        torch.save(checkpoint, filename)
+        print(f"Model saved to {filename}")
+
+    def load_model(self, filename):
+        """
+        Load the model's state from a file.
+        
+        Args:
+            filename (str): The name of the file to load the model's state from.
+        """
+        checkpoint = torch.load(filename)
+        self.Q_eval.load_state_dict(checkpoint['model_state_dict'])
+        self.Q_eval.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.epsilon = checkpoint['epsilon']
+        self.mem_cntr = checkpoint['mem_cntr']
+        self.iter_cntr = checkpoint['iter_cntr']
+        self.state_memory = checkpoint['state_memory']
+        self.new_state_memory = checkpoint['new_state_memory']
+        self.action_memory = checkpoint['action_memory']
+        self.reward_memory = checkpoint['reward_memory']
+        self.terminal_memory = checkpoint['terminal_memory']
+        print(f"Model loaded from {filename}")
 
 

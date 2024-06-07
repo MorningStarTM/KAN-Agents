@@ -43,7 +43,7 @@ class Trainer:
             gpu_usage = 0
         self.gpu_usage = np.append(self.gpu_usage, gpu_usage)  # Append GPU usage to the array
 
-    def train(self):
+    def train(self, filename):
         total_start_time = time.time()
 
         for i in range(self.epochs):
@@ -65,17 +65,18 @@ class Trainer:
                 break
 
             self.history = np.append(self.history, score)  # Append the score to the history array
+            avg_Score = np.mean(self.history.tolist()[max(0, i-100):(i+1)])
             episode_end_time = time.time()
             episode_duration = episode_end_time - episode_start_time
             self.time_history = np.append(self.time_history, episode_duration)  # Append episode duration
 
-            print(f"Episode {i} Score {score}")
+            print(f"Episode {i} Score {score} -- Avg_score : {avg_Score}")
         
         total_end_time = time.time()
         self.total_duration = total_end_time - total_start_time
         print(f"Total Time: {self.total_duration} seconds")
 
-        filename = "result\\result_kan.png"
+        
         #np.save("reward", self.history)
         plot_learning(self.history, filename=filename, window=50)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
@@ -171,7 +172,7 @@ class QTrainer:
             avg_score = np.mean(scores[-100:])
             if self.best_score < score:
                 self.best_score = score
-                self.agent.save_model("models\\dqn.pth")
+                self.agent.save_model(f"models\\{self.agent.name}.pth")
 
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
@@ -185,5 +186,5 @@ class QTrainer:
         self.csvlogger.log()
 
         x = [i+1 for i in range(self.n_episode)]
-        filename = 'lunar_lander.png'
+        
         plotLearning(x, scores, eps_history, filename)

@@ -7,7 +7,7 @@ import os
 
 
 class KANActorCriticNetwork(nn.Module):
-    def __init__(self, input_dims=8, fc1=16, fc2=32, n_actions=4, lr=0.0003):
+    def __init__(self, input_dims=4, fc1_dims=16, fc2_dims=32, n_actions=2, lr=0.0003):
         """
         This class for build actor acritic network based on KAN layer
 
@@ -21,15 +21,16 @@ class KANActorCriticNetwork(nn.Module):
         """
         super(KANActorCriticNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dim = fc1
-        self.fc2_dim = fc2
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
+        self.alpha = lr
         self.fc1 = KANLayer([self.input_dims, 16, 32])
         self.pi = KANLayer([32, 16, self.n_actions])
-        self.v = KANLayer([32, 8, 1])
-        self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
+        self.v = KANLayer([32, 16, 1])
+        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cuda:1')
         self.to(self.device)
 
     def forward(self, observation):
@@ -42,19 +43,18 @@ class KANActorCriticNetwork(nn.Module):
 
 
 class ActorCriticNetwork(nn.Module):
-    def __init__(self, alpha=0.0003, input_dims=8, fc1_dims=16, fc2_dims=8,
-                 n_actions=4):
+    def __init__(self, alpha, input_dims, fc1_dims, fc2_dims,
+                 n_actions):
         super(ActorCriticNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.alpha = alpha
         self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         self.pi = nn.Linear(self.fc2_dims, n_actions)
         self.v = nn.Linear(self.fc2_dims, 1)
-        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
 
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cuda:1')
         self.to(self.device)
@@ -77,7 +77,7 @@ class KANACAgent(object):
         the lowest layers. For use with more complex environments such as
         the discrete lunar lander
     """
-    def __init__(self, alpha, input_dims, gamma=0.99,
+    def __init__(self, alpha, input_dims=4, gamma=0.99,
                  layer1_size=16, layer2_size=32, action_dim=2):
         self.name = "KAN based Actor-Critic Agent"
         self.gamma = gamma
@@ -129,7 +129,7 @@ class ACAgent(object):
         the lowest layers. For use with more complex environments such as
         the discrete lunar lander
     """
-    def __init__(self, alpha, input_dims, gamma=0.99,
+    def __init__(self, alpha=0.0003, input_dims=4, gamma=0.99,
                  layer1_size=16, layer2_size=32, action_dim=2):
         self.name = "Vanilla Actor-Critic Agent"
         self.gamma = gamma
@@ -137,7 +137,7 @@ class ACAgent(object):
         self.fc2_dims = layer2_size
         self.alpha = alpha
         
-        self.actor_critic = ActorCriticNetwork()
+        self.actor_critic = ActorCriticNetwork(alpha=self.alpha, input_dims=input_dims, fc1_dims=layer1_size, fc2_dims=layer2_size, n_actions=action_dim)
 
         self.log_probs = None
 
