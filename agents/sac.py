@@ -119,3 +119,45 @@ class ValueNetwork(nn.Module):
 
     def load_checkpoint(self):
         self.load_state_dict(torch.load(self.checkpoint_file))
+
+
+
+class ActorNetwork(nn.Module):
+    def __init__(self, alpha, input_dims, max_action, fc1_dims=256, fc2_dims=256, n_actions=2, name='actor', chkpt_dir='tmp/sac'):
+        super(ActorNetwork, self).__init__()
+        self.input_dims = input_dims
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        self.max_action = max_action
+        self.reparam_noise = 1e-6
+
+        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.mu = nn.Linear(self.fc2_dims, self.n_actions)
+        self.sigma = nn.Linear(self.fc2_dims, self.n_actions)
+
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+
+
+    def forward(self, state):
+        prob = self.fc1(state)
+        prob = F.relu(state)
+        prob = self.fc2(prob)
+        prob = F.relu(prob)
+
+        mu = self.mu(prob)
+        sigma = self.sigma(prob)
+
+        sigma = torch.clamp(sigma, min=self.reparam_noise, max=1)
+
+        return mu, sigma
+    
+    
+
