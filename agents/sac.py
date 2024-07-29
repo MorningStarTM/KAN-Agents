@@ -231,4 +231,19 @@ class Agent(nn.Module):
 
         self.target_value.load_state_dict(value_state_dict)
 
-        
+
+    def save_models(self):
+        self.actor.save_checkpoint()
+        self.value.save_checkpoint()
+        self.target_value.save_checkpoint()
+        self.critic_1.save_checkpoint()
+        self.critic_2.save_checkpoint()
+        print("__________models saved__________")
+
+    def load_models(self):
+        self.actor.load_checkpoint()
+        self.value.load_checkpoint()
+        self.target_value.load_checkpoint()
+        self.critic_1.load_checkpoint()
+        self.critic_2.load_checkpoint()
+        print("-------------model loaded--------------")
