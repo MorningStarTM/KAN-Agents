@@ -45,7 +45,7 @@ class ReplayBuffer():
 
 
 class CriticNetwork(nn.Module):
-    def __init__(self, beta, input_dim, n_actions, fc1_dims=256, fc2_dims=256, name=None, chkpt_dir='tmp/sac'):
+    def __init__(self, beta, input_dim, n_actions, fc1_dims=256, fc2_dims=256, name='Critic', chkpt_dir='tmp/sac'):
         super(CriticNetwork, self).__init__()
 
         self.input_dims = input_dim
@@ -83,6 +83,35 @@ class CriticNetwork(nn.Module):
     def load_checkpoint(self):
         self.load_state_dict(torch.load(self.checkpoint_file))
 
-        
 
+
+class ValueNetwork(nn.Module):
+    def __init__(self, beta, input_dims, fc1_dims=256, fc2_dims=256, name='Value', chkpt_dir='tmp/sac'):
+        super(ValueNetwork, self).__init__()
+        self.input_dims = input_dims
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+
+        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.v = nn.Linear(self.fc2_dims, 1)
+
+        self.optimizer = optim.Adam(self.parameters(), lr=beta)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+
+
+    def forward(self, state):
+        state_value = self.fc1(state)
+        state_value = F.relu(state_value)
+        state_value = self.fc2(state_value)
+        state_value = F.relu(state_value)
+
+        v = self.v(state_value)
+        return v
+    
     
