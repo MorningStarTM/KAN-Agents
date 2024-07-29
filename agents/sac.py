@@ -1,4 +1,10 @@
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import os
+
 
 class ReplayBuffer():
     def __init__(self, max_size, input_shape, n_actions):
@@ -34,3 +40,35 @@ class ReplayBuffer():
         dones = self.terminal_memory[batch]
 
         return states, actions, rewards, states_, dones
+    
+
+
+
+class CriticNetwork(nn.Modules):
+    def __init__(self, beta, input_dim, n_actions, fc1_dims=256, fc2_dims=256, name=None, chkpt_dir='tmp/sac'):
+        super(CriticNetwork, self).__init__()
+
+        self.input_dims = input_dim
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.n_actions = n_actions
+        self.name = name
+        self.checkpoint_dir = chkpt_dir
+        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+
+        self.fc1 = nn.Linear(self.input_dims[0]+n_actions, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.q = nn.Linear(self.fc2_dims, 1)
+
+    def forward(self, state, action):
+        action_value = self.fc1(torch.cat([state, action], dim=1))
+        action_value = F.relu(action_value)
+        action_value = self.fc2(action_value)
+        action_value = F.relu(action_value)
+
+        q = self.q(action_value)
+
+        return q
+    
+
+    
