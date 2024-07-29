@@ -211,5 +211,8 @@ class Agent(nn.Module):
 
         return actions.cpu().detach().numpy()[0]
     
-    
+
+    def remember(self, state, action, reward, new_state, done):
+        self.memory.store_transition(state, action, reward, new_state, done)
+
     
