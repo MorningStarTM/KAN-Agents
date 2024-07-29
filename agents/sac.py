@@ -44,7 +44,7 @@ class ReplayBuffer():
 
 
 
-class CriticNetwork(nn.Modules):
+class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dim, n_actions, fc1_dims=256, fc2_dims=256, name=None, chkpt_dir='tmp/sac'):
         super(CriticNetwork, self).__init__()
 
@@ -60,6 +60,12 @@ class CriticNetwork(nn.Modules):
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         self.q = nn.Linear(self.fc2_dims, 1)
 
+        self.optimizer = optim.Adam(self.parameters(), lr=beta)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        self.to(self.device)
+
+
     def forward(self, state, action):
         action_value = self.fc1(torch.cat([state, action], dim=1))
         action_value = F.relu(action_value)
@@ -70,5 +76,13 @@ class CriticNetwork(nn.Modules):
 
         return q
     
+
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
+
+        
 
     
