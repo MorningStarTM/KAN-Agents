@@ -186,4 +186,23 @@ class ActorNetwork(nn.Module):
         return action, log_probs
     
 
+
+class Agent(nn.Module):
+    def __init__(self, alpha=0.0003, beta=0.0003, input_dims=[8], env=None, gamma=0.99, n_actions=2, max_size=100000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_sclae=2):
+        self.gamma = gamma
+        self.tau = tau
+        self.memory = ReplayBuffer(max_size, input_dims, n_actions)
+        self.batch_size = batch_size
+        self.n_actions = n_actions
+
+        self.actor = ActorNetwork(alpha, input_dims, n_actions=n_actions, name='actor', max_action=env.action_space.high)
+        self.critic_1 = CriticNetwork(beta, input_dims, n_actions=n_actions, name='critic_1')
+        self.critic_2 = CriticNetwork(beta, input_dims, n_actions=n_actions, name='critic_2')
+        self.value = ValueNetwork(beta, input_dims, name='value')
+        self.target_value = ValueNetwork(beta, input_dims, name='target_value')
+
+        self.scale = reward_sclae
+        self.update_network_parameter(tau=1)
+
+
     
