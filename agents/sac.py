@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import os
+from torch.distributions.normal import Normal
 
 
 class ReplayBuffer():
@@ -159,5 +160,10 @@ class ActorNetwork(nn.Module):
 
         return mu, sigma
     
-    
 
+
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
