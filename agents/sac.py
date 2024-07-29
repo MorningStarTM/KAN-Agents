@@ -205,4 +205,11 @@ class Agent(nn.Module):
         self.update_network_parameter(tau=1)
 
 
+    def choose_action(self, observation):
+        state = torch.tensor([observation]).to(self.actor.device)
+        actions, _ = self.actor.sample_normal(state, reparameterize=False)
+
+        return actions.cpu().detach().numpy()[0]
+    
+    
     
