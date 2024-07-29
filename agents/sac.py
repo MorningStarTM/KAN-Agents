@@ -216,3 +216,19 @@ class Agent(nn.Module):
         self.memory.store_transition(state, action, reward, new_state, done)
 
     
+    def updated_network_parameters(self, tau=None):
+        if tau is None:
+            tau = self.tau
+
+        target_value_params = self.target_value.named_parameters()
+        value_params = self.value.named_parameters()
+
+        target_value_state_dict = dict(target_value_params)
+        value_state_dict = dict(value_params)
+
+        for name in value_state_dict:
+            value_state_dict[name] = tau * value_state_dict[name].clone() + (1-tau) * target_value_state_dict[name].clone()
+
+        self.target_value.load_state_dict(value_state_dict)
+
+        
