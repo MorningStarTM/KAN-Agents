@@ -167,3 +167,23 @@ class ActorNetwork(nn.Module):
 
     def load_checkpoint(self):
         self.load_state_dict(torch.load(self.checkpoint_file))
+
+
+    def sample_normal(self, state, reparameterize=True):
+        mu, sigma = self.forward(state)
+        probabilities = Normal(mu, sigma)
+
+        if reparameterize:
+            actions = probabilities.rsample()
+        else:
+            actions = probabilities.sample()
+
+        action = torch.tanh(actions)* torch.tensor(self.max_action).to(self.device)
+        log_probs = probabilities.log_prob(actions)
+        log_probs -= torch.log(1-action.pow(2) + self.reparam_noise)
+        log_probs = log_probs.sum(1, keepdim=True)
+
+        return action, log_probs
+    
+
+    
