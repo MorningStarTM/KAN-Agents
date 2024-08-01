@@ -197,3 +197,11 @@ class GenericNetwork(nn.Module):
 
 
     def forward(self, observation):
+        state = torch.tensor(observation, dtype=torch.float).to(self.device)
+        x = F.relu(self.fc1(state))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+
+        return x
+    
+    
