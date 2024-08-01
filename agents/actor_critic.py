@@ -204,4 +204,13 @@ class GenericNetwork(nn.Module):
 
         return x
     
-    
+
+
+class ContinousActorCritic(object):
+    def __init__(self, alpha, beta, input_dims, gamma=0.99, n_actions=2, layer1_size=64, n_outputs=1):
+        self.gamma = gamma
+        self.log_probs = None
+        self.n_outputs = n_outputs
+        self.actor = GenericNetwork(alpha, input_dims, layer1_size, layer1_size, n_actions=n_actions)
+        self.critic = GenericNetwork(beta, input_dims, layer1_size, layer1_size, n_actions=1)
+        
