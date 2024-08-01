@@ -175,3 +175,25 @@ class ACAgent(object):
     def load_model(self, path):
         self.actor_critic.load_state_dict(torch.load(path))
 
+
+
+
+class GenericNetwork(nn.Module):
+    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, n_actions):
+        super(GenericNetwork, self).__init__()
+        self.lr = lr
+        self.input_dims = fc1_dims
+        self.fc1_dims = fc1_dims
+        self.fc2_dims = fc2_dims
+        self.n_actions = n_actions
+
+        self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
+        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
+        self.fc3 = nn.Linear(self.fc2_dims, self.n_actions)
+
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
+        self.to(device=self.device)
+
+
+    def forward(self, observation):
