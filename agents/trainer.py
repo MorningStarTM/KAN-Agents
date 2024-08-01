@@ -5,7 +5,7 @@ import time
 import numpy as np
 from .csv_logger import CSVLogger
 from collections import deque
-
+import torch
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -29,7 +29,8 @@ class Trainer:
         self.gpu_usage = np.array([])  # Initialize as empty NumPy array
         self.c_point = 0
         self.total_duration = 0
-        
+        self.best_score = 0
+        self.score_history = []
 
     def monitor_resources(self):
         """
@@ -53,24 +54,22 @@ class Trainer:
             done = False
             score = 0
             observation, _ = self.env.reset()
-
             while not done:
+                observation = torch.tensor(observation, dtype=torch.float)
                 action = self.agent.choose_action(observation)
-                observation_, reward, done, _, _ = self.env.step(action)
+                observation_, reward, done, info, _ = self.env.step(action)
+                observation_ = torch.tensor(observation_, dtype=torch.float)
                 self.agent.learn(observation, reward, observation_, done)
-                observation = observation
+                observation = observation_
                 score += reward
-            if score >= 200:
-                self.c_point = i
-                break
+            self.score_history.append(score)
 
-            self.history = np.append(self.history, score)  # Append the score to the history array
-            avg_Score = np.mean(self.history.tolist()[max(0, i-100):(i+1)])
-            episode_end_time = time.time()
-            episode_duration = episode_end_time - episode_start_time
-            self.time_history = np.append(self.time_history, episode_duration)  # Append episode duration
+            if score > best_score:
+                best_score = score
+                self.agent.save_model("result")
+                print(f'Best score {best_score} - Saving model')  # Append episode duration
 
-            print(f"Episode {i} Score {score} -- Avg_score : {avg_Score}")
+            print('episode: ', i, 'score: %.3f' % score)
         
         total_end_time = time.time()
         self.total_duration = total_end_time - total_start_time
