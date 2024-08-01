@@ -158,6 +158,9 @@ class DiscreteActorCritic(object):
         self.critic = GenericNetwork(beta, input_dims, layer1_size,
                                      layer2_size, n_actions=1)
         self.log_probs = None
+        self.name = "Discrete Actor Critic"
+        self.alpha = alpha
+
 
     def choose_action(self, observation):
         probabilities = F.softmax(self.actor.forward(observation.unsqueeze(0)))

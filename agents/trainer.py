@@ -63,7 +63,7 @@ class Trainer:
 
         
         #np.save("reward", self.history)
-        plotLearning(self.history, filename=filename, window=50)
+        PlotLearning(self.history, filename=filename, window=50)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
 

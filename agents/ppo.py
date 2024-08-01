@@ -202,7 +202,7 @@ class KANPPOAgent:
 
 class ActorNetwork(nn.Module):
     def __init__(self, n_actions, input_dims, alpha,
-            fc1_dims=16, fc2_dims=32, chkpt_dir='models'):
+            fc1_dims=128, fc2_dims=256, chkpt_dir='models'):
         super(ActorNetwork, self).__init__()
 
         self.checkpoint_file = os.path.join(chkpt_dir, 'actor_torch_ppo')
@@ -234,7 +234,7 @@ class ActorNetwork(nn.Module):
 
 
 class CriticNetwork(nn.Module):
-    def __init__(self, input_dims, alpha, fc1_dims=16, fc2_dims=32,
+    def __init__(self, input_dims, alpha, fc1_dims=128, fc2_dims=256,
             chkpt_dir='models'):
         super(CriticNetwork, self).__init__()
 
