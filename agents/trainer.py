@@ -1,4 +1,4 @@
-from .utils import plot_learning, plot_learning_curve, plotLearning
+from .utils import plot_learning, plot_learning_curve, PlotLearning, plotLearning
 import GPUtil
 import matplotlib.pyplot as plt
 import time
@@ -32,24 +32,10 @@ class Trainer:
         self.best_score = 0
         self.score_history = []
 
-    def monitor_resources(self):
-        """
-        Monitor and log the RAM and GPU usage.
-        """
-        # GPU usage
-        gpus = GPUtil.getGPUs()
-        if gpus:
-            gpu_usage = max(gpu.memoryUtil * 100 for gpu in gpus)  # Get max GPU usage in percentage
-        else:
-            gpu_usage = 0
-        self.gpu_usage = np.append(self.gpu_usage, gpu_usage)  # Append GPU usage to the array
-
     def train(self, filename):
         total_start_time = time.time()
 
         for i in range(self.epochs):
-            self.monitor_resources()  # Monitor resources at the beginning of each episode
-            episode_start_time = time.time()
 
             done = False
             score = 0
@@ -64,10 +50,10 @@ class Trainer:
                 score += reward
             self.score_history.append(score)
 
-            if score > best_score:
-                best_score = score
+            if score > self.best_score:
+                self.best_score = score
                 self.agent.save_model("result")
-                print(f'Best score {best_score} - Saving model')  # Append episode duration
+                print(f'Best score {self.best_score}  Saving model')  # Append episode duration
 
             print('episode: ', i, 'score: %.3f' % score)
         
@@ -77,7 +63,7 @@ class Trainer:
 
         
         #np.save("reward", self.history)
-        plot_learning(self.history, filename=filename, window=50)
+        plotLearning(self.history, filename=filename, window=50)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
 
