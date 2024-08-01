@@ -177,24 +177,20 @@ class ACAgent(object):
 
 
 
-
 class GenericNetwork(nn.Module):
-    def __init__(self, lr, input_dims, fc1_dims, fc2_dims, n_actions):
+    def __init__(self, alpha, input_dims, fc1_dims, fc2_dims,
+                 n_actions):
         super(GenericNetwork, self).__init__()
-        self.lr = lr
-        self.input_dims = fc1_dims
+        self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-
-        self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
+        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
         self.fc3 = nn.Linear(self.fc2_dims, self.n_actions)
-
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
-        self.device = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-        self.to(device=self.device)
-
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cuda:1')
+        self.to(self.device)
 
     def forward(self, observation):
         state = torch.tensor(observation, dtype=torch.float).to(self.device)
@@ -203,14 +199,28 @@ class GenericNetwork(nn.Module):
         x = self.fc3(x)
 
         return x
-    
 
 
 class ContinousActorCritic(object):
-    def __init__(self, alpha, beta, input_dims, gamma=0.99, n_actions=2, layer1_size=64, n_outputs=1):
+    def __init__(self, alpha, beta, input_dims, gamma=0.99, n_actions=2,
+                 layer1_size=64, layer2_size=64, n_outputs=1):
         self.gamma = gamma
         self.log_probs = None
         self.n_outputs = n_outputs
-        self.actor = GenericNetwork(alpha, input_dims, layer1_size, layer1_size, n_actions=n_actions)
-        self.critic = GenericNetwork(beta, input_dims, layer1_size, layer1_size, n_actions=1)
-        
+        self.actor = GenericNetwork(alpha, input_dims, layer1_size,
+                                           layer2_size, n_actions=n_actions)
+        self.critic = GenericNetwork(beta, input_dims, layer1_size,
+                                            layer2_size, n_actions=1)
+
+    def choose_action(self, observation):
+        mu, sigma  = self.actor.forward(observation)#.to(self.actor.device)
+        sigma = torch.exp(sigma)
+        action_probs = torch.distributions.Normal(mu, sigma)
+        probs = action_probs.sample(sample_shape=torch.Size([self.n_outputs]))
+        self.log_probs = action_probs.log_prob(probs).to(self.actor.device)
+        action = torch.tanh(probs)
+
+        return action.item()
+    
+
+    
