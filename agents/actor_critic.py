@@ -194,8 +194,8 @@ class DiscreteActorCritic(object):
         torch.save(self.critic.state_dict(), os.path.join(path, "critic.pth"))
 
     def load_model(self, path):
-        self.actor.load_state_dict(torch.load(path))
-        self.critic.load_state_dict(torch.load(path))
+        self.actor.load_state_dict(torch.load(os.path.join(path, "actor.pth")))
+        self.critic.load_state_dict(torch.load(os.path.join(path, "critic.pth")))
         print("model loaded")
 
 

@@ -1,4 +1,4 @@
-from .utils import plot_learning, plot_learning_curve, PlotLearning, plotLearning
+from .utils import plot_learning, plot_learning_curve, AC_result, plotLearning
 import GPUtil
 import matplotlib.pyplot as plt
 import time
@@ -52,8 +52,11 @@ class Trainer:
 
             if score > self.best_score:
                 self.best_score = score
-                self.agent.save_model("result")
+                self.agent.save_model("result\\lunar")
                 print(f'Best score {self.best_score}  Saving model')  # Append episode duration
+
+            if score >= 210.0:
+                break
 
             print('episode: ', i, 'score: %.3f' % score)
         
@@ -63,7 +66,7 @@ class Trainer:
 
         
         #np.save("reward", self.history)
-        PlotLearning(self.history, filename=filename, window=50)
+        AC_result(self.score_history, filename=filename, window=5)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
 

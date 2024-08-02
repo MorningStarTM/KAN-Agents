@@ -247,3 +247,31 @@ class Agent(nn.Module):
         self.critic_1.load_checkpoint()
         self.critic_2.load_checkpoint()
         print("-------------model loaded--------------")
+
+
+    
+    def learn(self):
+        if self.memory.mem_cent < self.batch_size:
+            return
+        
+        stae, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+
+        reward = torch.tensor(reward, dtype=torch.float).to(self.actor.device)
+        done = torch.tensor(done).to(self.actor.device)
+        state_ = torch.tensor(new_state, dtype=torch.float).to(self.actor.device)
+        state = torch.tensor(state, dtype=torch.float).to(self.actor.device)
+        action = torch.tensor(action, dtype=torch.float).to(self.actor.device)
+
+        value = self.value(state).view(-1)
+        value_ = self.target_value(state_).view(-1)
+        value_[done] = 0.0
+
+        actions, log_probs = self.actor.sample_normal(state, reparameterize=False)
+        log_probs = log_probs.view(-1)
+        q1_new_policy = self.critic_1.forward(state, actions)
+        q2_new_policy = self.critic_2.forward(state, actions)
+        critic_value = torch.min(q1_new_policy, q2_new_policy)
+        critic_value = critic_value.view(-1)
+
+        self.value_optimizer.zero_grad()
+        value_target = critic_value - log_probs
