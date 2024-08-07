@@ -80,3 +80,19 @@ class ActorCritic(nn.Module):
 
     def forward(self):
         raise NotImplementedError
+    
+    def act(self, state):
+
+        if self.has_continuous_action_space:
+            action_mean = self.actor(state)
+            cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
+            dist = MultivariateNormal(action_mean, cov_mat)
+        else:
+            action_probs = self.actor(state)
+            dist = Categorical(action_probs)
+
+        action = dist.sample()
+        action_logprob = dist.log_prob(action)
+        state_val = self.critic(state)
+
+        return action.detach(), action_logprob.detach(), state_val.detach()
