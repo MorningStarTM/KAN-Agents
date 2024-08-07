@@ -96,3 +96,26 @@ class ActorCritic(nn.Module):
         state_val = self.critic(state)
 
         return action.detach(), action_logprob.detach(), state_val.detach()
+    
+
+    def evaluate(self, state, action):
+
+        if self.has_continuous_action_space:
+            action_mean = self.actor(state)
+            action_var = self.action_var.expand_as(action_mean)
+            cov_mat = torch.diag_embed(action_var).to(self.device)
+            dist = MultivariateNormal(action_mean, cov_mat)
+            
+            # for single action continuous environments
+            if self.action_dim == 1:
+                action = action.reshape(-1, self.action_dim)
+
+        else:
+            action_probs = self.actor(state)
+            dist = Categorical(action_probs)
+
+        action_logprobs = dist.log_prob(action)
+        dist_entropy = dist.entropy()
+        state_values = self.critic(state)
+        
+        return action_logprobs, state_values, dist_entropy
