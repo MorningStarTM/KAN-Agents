@@ -72,61 +72,45 @@ class Trainer:
 
     
 
-class PPOTrainer:
-    def __init__(self, agent, env, N, n_games, n_epochs):
-        self.agent = agent
-        self.env = env
-        self.n_games = n_games
-        self.N = N
-        self.n_epochs = n_epochs
-        self.best_score = env.reward_range[0]
-        self.score_history = []
-
-        self.learn_iters = 0
-        self.avg_score = 0
-        self.n_steps = 0
+class PPO:
+    def __init__(self,
+                 env_name, 
+                 has_continuous_action_space=False, 
+                 max_ep_len=400,
+                 max_training_timesteps = int(1e5),
+                 save_model_freq = int(2e4),
+                 action_std=None,
+                 K_epochs=40,
+                 eps_clip=0.2,
+                 gamma=0.99,
+                 lr_actor=0.0003,
+                 lr_critic=0.001,):
         
+        self.env_name = "LunarLander-v2"
+        self.has_continuous_action_space = has_continuous_action_space
 
-    def train(self, figure_file):
-        total_start_time = time.time()
+        self.max_ep_len = max_ep_len                    # max timesteps in one episode
+        self.max_training_timesteps = max_training_timesteps   # break training loop if timeteps > max_training_timesteps
+
+        self.print_freq = self.max_ep_len * 4     # print avg reward in the interval (in num timesteps)
+        self.log_freq = self.max_ep_len * 2       # log avg reward in the interval (in num timesteps)
+        self.save_model_freq = save_model_freq      # save model frequency (in num timesteps)
+
+        self.action_std = action_std
+
+        self.update_timestep = self.max_ep_len * 4      # update policy every n timesteps
+        self.K_epochs = K_epochs               # update policy for K epochs
+        self.eps_clip = eps_clip              # clip parameter for PPO
+        self.gamma = gamma             # discount factor
+
+        self.lr_actor = lr_actor       # learning rate for actor network
+        self.lr_critic = lr_critic      # learning rate for critic network
+
+        self.random_seed = 0     
 
 
-        for i in range(self.n_games):
-            observation, _ = self.env.reset()
-            done = False
-            score = 0
-            while not done:
-                action, prob, val = self.agent.choose_action(observation)
-                observation_, reward, done, info, _ = self.env.step(action)
-                self.n_steps += 1
-                score += reward
-                self.agent.remember(observation, action, prob, val, reward, done)
-                if self.n_steps % self.N == 0:
-                    self.agent.learn()
-                    self.learn_iters += 1
-                observation = observation_
-            self.score_history.append(score)
-            self.avg_score = np.mean(self.score_history[-100:])
 
-            if self.avg_score > self.best_score:
-                self.best_score = self.avg_score
-                self.agent.save_models()
 
-            
-            print('episode', i, 'score %.1f' % score, 'avg score %.1f' % self.avg_score,
-                    'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
-            
-            if self.avg_score >= 200:
-                break
-        total_end_time = time.time()
-        self.total_duration = total_end_time - total_start_time
-
-        
-        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_epochs, c_point=i, time=self.total_duration)
-        self.csvlogger.log()
-
-        x = [i+1 for i in range(len(self.score_history))]
-        plot_learning_curve(x, self.score_history, figure_file)
 
 
 class QTrainer:
