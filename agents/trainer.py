@@ -7,6 +7,7 @@ from .csv_logger import CSVLogger
 from collections import deque
 import torch
 import gym
+from datetime import datetime
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -76,6 +77,7 @@ class Trainer:
 class PPO:
     def __init__(self,
                  env_name, 
+                 agent,
                  has_continuous_action_space=False, 
                  max_ep_len=400,
                  max_training_timesteps = int(1e5),
@@ -88,6 +90,7 @@ class PPO:
                  lr_critic=0.001,):
         
         self.env_name = env_name
+        self.agent = agent
         self.env = gym.make(env_name)
         self.has_continuous_action_space = has_continuous_action_space
 
@@ -109,20 +112,134 @@ class PPO:
         self.lr_critic = lr_critic      # learning rate for critic network
 
         self.random_seed = 0     
-
+        self.log_dir = "models\\PPO_logs"
+        self.log_f_name = None
+        self.checkpoint_path = None
     
     def init_train(self):
-        log_dir = "models\\PPO_logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
 
-        log_dir = log_dir + '/' + self.env_name + '/'
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
+        self.log_dir = self.log_dir + '/' + self.env_name + '/'
+        if not os.path.exists(self.log_dir):
+            os.makedirs(self.log_dir)
+
+        run_num = 0
+        current_num_files = next(os.walk(self.log_dir))[2]
+        run_num = len(current_num_files)
+
+
+        #### create new log file for each run 
+        self.log_f_name = self.log_dir + '/PPO_' + self.env_name + "_log_" + str(run_num) + ".csv"
+
+        print("current logging run number for " + self.env_name + " : ", run_num)
+        print("logging at : " + self.log_f_name)
+
+        run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
+
+        directory = "PPO_preTrained"
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        directory = directory + '/' + self.env_name + '/'
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+
+        checkpoint_path = directory + "PPO_{}_{}_{}.pth".format(self.env_name, self.random_seed, run_num_pretrained)
+        print("save checkpoint path : " + checkpoint_path)
 
 
 
+    def train(self):
+        start_time = datetime.now().replace(microsecond=0)
+        print("Started training at (GMT) : ", start_time)
+        log_f = open(self.log_f_name,"w+")
+        log_f.write('episode,timestep,reward\n')
 
+
+        # printing and logging variables
+        print_running_reward = 0
+        print_running_episodes = 0
+
+        log_running_reward = 0
+        log_running_episodes = 0
+
+        time_step = 0
+        i_episode = 0
+
+        while time_step <= self.max_training_timesteps:
+            
+            state, _ = self.env.reset()
+            current_ep_reward = 0
+
+            for t in range(1, self.max_ep_len+1):
+                
+                # select action with policy
+                action = self.agent.select_action(state)
+                state, reward, done, _, _ = self.env.step(action)
+                
+                # saving reward and is_terminals
+                self.agent.buffer.rewards.append(reward)
+                self.agent.buffer.is_terminals.append(done)
+                
+                time_step +=1
+                current_ep_reward += reward
+
+                # update PPO agent
+                if time_step % self.update_timestep == 0:
+                    self.agent.update()
+
+                # log in logging file
+                if time_step % self.log_freq == 0:
+
+                    # log average reward till last episode
+                    log_avg_reward = log_running_reward / log_running_episodes
+                    log_avg_reward = round(log_avg_reward, 4)
+
+                    log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+                    log_f.flush()
+
+                    log_running_reward = 0
+                    log_running_episodes = 0
+
+                # printing average reward
+                if time_step % self.print_freq == 0:
+
+                    # print average reward till last episode
+                    print_avg_reward = print_running_reward / print_running_episodes
+                    print_avg_reward = round(print_avg_reward, 2)
+
+                    print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
+
+                    print_running_reward = 0
+                    print_running_episodes = 0
+                    
+                # save model weights
+                if time_step % self.save_model_freq == 0:
+                    print("--------------------------------------------------------------------------------------------")
+                    print("saving model at : " + self.checkpoint_path)
+                    self.agent.save(self.checkpoint_path)
+                    print("model saved")
+                    print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
+                    print("--------------------------------------------------------------------------------------------")
+                    
+                # break; if the episode is over
+                if done:
+                    break
+
+            print_running_reward += current_ep_reward
+            print_running_episodes += 1
+
+            log_running_reward += current_ep_reward
+            log_running_episodes += 1
+
+            i_episode += 1
+
+
+        log_f.close()
+        self.env.close()
 
 
 class QTrainer:
