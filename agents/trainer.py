@@ -6,6 +6,7 @@ import numpy as np
 from .csv_logger import CSVLogger
 from collections import deque
 import torch
+import gym
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -86,7 +87,8 @@ class PPO:
                  lr_actor=0.0003,
                  lr_critic=0.001,):
         
-        self.env_name = "LunarLander-v2"
+        self.env_name = env_name
+        self.env = gym.make(env_name)
         self.has_continuous_action_space = has_continuous_action_space
 
         self.max_ep_len = max_ep_len                    # max timesteps in one episode
@@ -107,6 +109,16 @@ class PPO:
         self.lr_critic = lr_critic      # learning rate for critic network
 
         self.random_seed = 0     
+
+    
+    def init_train(self):
+        log_dir = "models\\PPO_logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        log_dir = log_dir + '/' + self.env_name + '/'
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
 
 
 
