@@ -34,32 +34,45 @@ class KQNetwork(nn.Module):
 
 
 class QNetwork(nn.Module):
-    def __init__(self, lr, input_dims, fc1_dims, fc2_dims,
-                 n_actions):
+    def __init__(self, lr, input_dims, n_actions, hidden_layers=None):
+        """
+        Dynamic Q-Network
+        :param lr: Learning rate
+        :param input_dims: Observation space dimensions (int)
+        :param n_actions: Number of actions (output dimensions)
+        :param hidden_layers: List specifying the number of neurons in hidden layers
+                              If None, default [256, 256] is used.
+        """
         super(QNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.alpha = lr
-        self.fc1 = nn.Linear(self.input_dims, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        self.fc3 = nn.Linear(self.fc2_dims, self.fc1_dims)
-        self.fc4 = nn.Linear(self.fc1_dims, self.n_actions)
+        self.hidden_layers = hidden_layers or [256, 256]  # Default hidden layer sizes
 
-        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
+        # Build dynamic sequential model
+        layers = []
+        input_size = self.input_dims
+
+        for hidden_size in self.hidden_layers:
+            layers.append(nn.Linear(input_size, hidden_size))
+            layers.append(nn.ReLU())
+            input_size = hidden_size
+
+        layers.append(nn.Linear(input_size, self.n_actions))
+
+        self.model = nn.Sequential(*layers)
+
+        # Optimizer and loss
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
 
-    def forward(self, state):
-        x = F.relu(self.fc1(state))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        actions = self.fc4(x)
 
-        return actions
+    def forward(self, state):
+        return self.model(state)
     
+
+
 
 
 class ReplayBuffer:
@@ -83,7 +96,7 @@ class ReplayBuffer:
 
 
 class DQNAgent:
-    def __init__(self, gamma, epsilon, lr, input_dims, batch_size, n_actions,
+    def __init__(self, gamma, epsilon, lr, input_dims, batch_size, n_actions, n_layer,
                  max_mem_size=100000, eps_end=0.05, eps_dec=5e-4):
         self.gamma = gamma
         self.epsilon = epsilon
@@ -100,7 +113,7 @@ class DQNAgent:
 
         self.Q_eval = QNetwork(lr, n_actions=n_actions,
                                    input_dims=input_dims,
-                                   fc1_dims=256, fc2_dims=512)
+                                   hidden_layers=n_layer)
         
         self.alpha = self.Q_eval.alpha
         self.state_memory = np.zeros((self.mem_size, input_dims),
