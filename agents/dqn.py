@@ -7,28 +7,43 @@ import random
 import numpy as np
 from .kan import KANLayer
 
+
+
 class KQNetwork(nn.Module):
-    def __init__(self, lr, input_dims, fc1_dims, fc2_dims,
-                 n_actions):
+    def __init__(self, lr, input_dims, n_actions, hidden_layers=None):
+        """
+        Dynamic KAN-Based Q-Network
+        :param lr: Learning rate
+        :param input_dims: Observation space dimensions (int)
+        :param n_actions: Number of actions (output dimensions)
+        :param hidden_layers: List specifying the number of neurons in hidden layers
+                              If None, default [256, 256] is used.
+        """
         super(KQNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
-        self.alpha = lr
-        self.fc1 = KANLayer([self.input_dims, self.fc1_dims, self.fc2_dims])
-        self.fc2 = KANLayer([self.fc2_dims, self.fc1_dims, self.n_actions])
+        self.hidden_layers = hidden_layers or [256, 256]  # Default hidden layer sizes
 
-        self.optimizer = optim.Adam(self.parameters(), lr=self.alpha)
+        # Build dynamic model using KANLayers
+        layers = []
+        layer_dims = [self.input_dims] + self.hidden_layers + [self.n_actions]
+
+        for i in range(0, len(layer_dims) - 2, 2):
+            # Pass three arguments to KANLayer: input, intermediate, output dims
+            layers.append(KANLayer([layer_dims[i], layer_dims[i + 1], layer_dims[i + 2]]))
+
+        # Combine layers into a sequential model
+        self.model = nn.Sequential(*layers)
+
+        # Optimizer and loss
+        self.optimizer = optim.Adam(self.parameters(), lr=lr)
         self.loss = nn.MSELoss()
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.to(self.device)
 
     def forward(self, state):
-        x = self.fc1(state)
-        x = self.fc2(x)
+        return self.model(state)
 
-        return x
     
 
 
