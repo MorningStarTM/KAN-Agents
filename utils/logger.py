@@ -41,3 +41,6 @@ class CustomLogger:
 
         log_methods[level](message)  # Log message
         return self.log_file  # Return log file path
+
+
+

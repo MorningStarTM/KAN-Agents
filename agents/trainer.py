@@ -1,4 +1,3 @@
-from .utils import plot_learning, plot_learning_curve, AC_result, plotLearning
 import GPUtil
 import matplotlib.pyplot as plt
 import time
@@ -9,9 +8,14 @@ import torch
 import gym
 from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
+from utils.logger import CustomLogger
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+
+
+logger = CustomLogger(log_dir="logs", log_file_prefix="experiment")
+
 
 
 class Trainer:
@@ -69,7 +73,6 @@ class Trainer:
 
         
         #np.save("reward", self.history)
-        AC_result(self.score_history, filename=filename, window=5)
         self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
         self.csvlogger.log()
 
@@ -244,6 +247,7 @@ class QTrainer:
 
 
     def train(self, filename):
+        logger.log(f"info", "Training started")
         total_start_time = time.time()
 
         for i in range(self.n_episode):
@@ -283,6 +287,10 @@ class QTrainer:
         
         #plotLearning(x, scores, eps_history, filename)
 
+        np.save(f"{filename}_scores.npy", self.scores)
+        np.save(f"{filename}_eps_history.npy", self.eps_history)
+        logger.log(f"info", "result histories are saved")
+        
     
     def get_results(self, filename_prefix):
         """

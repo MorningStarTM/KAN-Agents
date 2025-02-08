@@ -7,7 +7,11 @@ import random
 import numpy as np
 from .kan import KANLayer
 import matplotlib.pyplot as plt
+from torchsummary import summary
+from utils.logger import CustomLogger
 
+
+logger = CustomLogger(log_dir="logs", log_file_prefix="experiment")
 
 
 class KQNetwork(nn.Module):
@@ -131,7 +135,10 @@ class DQNAgent:
                                    input_dims=input_dims,
                                    hidden_layers=n_layer)
         
-        self.alpha = self.Q_eval.alpha
+        logger.log("info", f"QNetwork Model Summary:\n {summary(self.Q_eval, input_size=(1, input_dims))}")
+
+        
+        self.alpha = self.gamma
         self.state_memory = np.zeros((self.mem_size, input_dims),
                                      dtype=np.float32)
         self.new_state_memory = np.zeros((self.mem_size, input_dims),
