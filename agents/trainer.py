@@ -8,6 +8,7 @@ from collections import deque
 import torch
 import gym
 from datetime import datetime
+from agents.dqn import DQNAgent, KDQNAgent
 
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -74,7 +75,7 @@ class Trainer:
 
     
 
-class PPO:
+class PPOTrainer:
     def __init__(self,
                  env_name, 
                  agent,
@@ -82,12 +83,7 @@ class PPO:
                  max_ep_len=400,
                  max_training_timesteps = int(1e5),
                  save_model_freq = int(2e4),
-                 action_std=None,
-                 K_epochs=40,
-                 eps_clip=0.2,
-                 gamma=0.99,
-                 lr_actor=0.0003,
-                 lr_critic=0.001,):
+                 action_std=None):
         
         self.env_name = env_name
         self.agent = agent
@@ -104,17 +100,11 @@ class PPO:
         self.action_std = action_std
 
         self.update_timestep = self.max_ep_len * 4      # update policy every n timesteps
-        self.K_epochs = K_epochs               # update policy for K epochs
-        self.eps_clip = eps_clip              # clip parameter for PPO
-        self.gamma = gamma             # discount factor
-
-        self.lr_actor = lr_actor       # learning rate for actor network
-        self.lr_critic = lr_critic      # learning rate for critic network
 
         self.random_seed = 0     
         self.log_dir = "models\\PPO_logs"
-        self.log_f_name = None
-        self.checkpoint_path = None
+        self.log_f_name = ""
+        self.checkpoint_path = ""
     
     def init_train(self):
         
@@ -153,6 +143,7 @@ class PPO:
 
 
     def train(self):
+        self.init_train()
         start_time = datetime.now().replace(microsecond=0)
         print("Started training at (GMT) : ", start_time)
         log_f = open(self.log_f_name,"w+")
@@ -243,15 +234,16 @@ class PPO:
 
 
 class QTrainer:
-    def __init__(self, agent, env, n_episode=1000):
+    def __init__(self, agent:DQNAgent, env, n_episode=1000):
         self.agent = agent
         self.env = env
         self.n_episode = n_episode
         self.best_score = 0
+        self.scores = []  # To store scores for each episode
+        self.eps_history = []  # To store epsilon values for each episode
 
 
     def train(self, filename):
-        scores, eps_history = [], []
         total_start_time = time.time()
 
         for i in range(self.n_episode):
@@ -267,10 +259,11 @@ class QTrainer:
                                         observation_, done)
                 self.agent.learn()
                 observation = observation_
-            scores.append(score)
-            eps_history.append(self.agent.epsilon)
 
-            avg_score = np.mean(scores[-100:])
+            self.scores.append(score)
+            self.eps_history.append(self.agent.epsilon)
+
+            avg_score = np.mean(self.scores[-100:])
             if self.best_score < score:
                 self.best_score = score
                 self.agent.save_model(f"models\\{self.agent.name}.pth")
@@ -288,4 +281,18 @@ class QTrainer:
 
         x = [i+1 for i in range(self.n_episode)]
         
-        plotLearning(x, scores, eps_history, filename)
+        #plotLearning(x, scores, eps_history, filename)
+
+    
+    def get_results(self, filename_prefix):
+        """
+        Get the scores and epsilon history after training, and save them as .npy files.
+        :param filename_prefix: Prefix for the filenames to save scores and eps_history.
+        :return: Tuple (scores, eps_history)
+        """
+        # Save scores and epsilons to .npy files
+        np.save(f"{filename_prefix}_scores.npy", self.scores)
+        np.save(f"{filename_prefix}_eps_history.npy", self.eps_history)
+
+        print(f"Results saved: {filename_prefix}_scores.npy, {filename_prefix}_eps_history.npy")
+    
