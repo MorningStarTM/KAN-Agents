@@ -265,7 +265,9 @@ class KDQNAgent:
                                    input_dims=input_dims,
                                    hidden_layers=n_layer)
         
-        self.alpha = self.Q_eval.alpha
+        #logger.log("info", f"QNetwork Model Summary:\n {summary(self.Q_eval, input_size=(1, input_dims))}")
+        
+        self.alpha = self.gamma
         
         self.state_memory = np.zeros((self.mem_size, input_dims),
                                      dtype=np.float32)
