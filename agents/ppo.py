@@ -31,35 +31,38 @@ class RolloutBuffer:
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init):
+    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init, n_layers):
         super(ActorCritic, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = has_continuous_action_space
 
+        self.hidden_layers = n_layers or [256, 256]  # Default hidden layer sizes
+
+        
         if has_continuous_action_space:
             self.action_dim = action_dim
             self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
 
-        # actor
-        if has_continuous_action_space :
-            self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, action_dim),
-                            nn.Tanh()
-                        )
+        layers = []
+        critic_layers = []
+        input_size = state_dim
+
+        for hidden_size in self.hidden_layers:
+            layers.append(nn.Linear(input_size, hidden_size))
+            layers.append(nn.ReLU())
+            input_size = hidden_size
+
+        layers.append(nn.Linear(input_size, action_dim))
+
+        if has_continuous_action_space:
+            layers.append(nn.Tanh())
         else:
-            self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, action_dim),
-                            nn.Softmax(dim=-1)
-                        )
-            
+            layers.append(nn.Softmax(dim=-1))
+
+        self.model = nn.Sequential(*layers)
+
+
+        
         self.critic = nn.Sequential(
                         nn.Linear(state_dim, 64),
                         nn.Tanh(),
@@ -122,28 +125,36 @@ class ActorCritic(nn.Module):
     
 
 
+#state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6
 
-class PPO:
-    def __init__(self, state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6):
+class PPOAgent:
+    def __init__(self, config):
+        self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.has_continuous_action_space = has_continuous_action_space
+        self.has_continuous_action_space = self.config['has_continuous_action_space']
 
-        if has_continuous_action_space:
-            self.action_std = action_std_init
+        if self.has_continuous_action_space:
+            self.action_std = self.config['action_std_init']
 
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epochs
+        self.gamma = self.config['gamma']
+        self.eps_clip = self.config['eps_clip']
+        self.K_epochs = self.config['K_epochs']
         
         self.buffer = RolloutBuffer()
 
-        self.policy = ActorCritic(state_dim, action_dim, has_continuous_action_space, action_std_init).to(self.device)
+        self.policy = ActorCritic(self.config['state_dim'], 
+                                  self.config['action_dim'], self.config['has_continuous_action_space'], 
+                                  self.config['action_std_init']).to(self.device)
+        
         self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': lr_actor},
-                        {'params': self.policy.critic.parameters(), 'lr': lr_critic}
+                        {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
+                        {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
                     ])
 
-        self.policy_old = ActorCritic(state_dim, action_dim, has_continuous_action_space, action_std_init).to(self.device)
+        self.policy_old = ActorCritic(self.config['state_dim'], 
+                                      self.config['action_dim'], self.has_continuous_action_space, 
+                                      self.config['action_std_init']).to(self.device)
+        
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
