@@ -8,6 +8,7 @@ import torch
 import gym
 from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
+from agents.ppo import PPOAgent
 from utils.logger import CustomLogger
 
 import os
@@ -81,17 +82,19 @@ class Trainer:
 class PPOTrainer:
     def __init__(self,
                  env_name, 
-                 agent,
+                 agent:PPOAgent,
                  has_continuous_action_space=False, 
-                 max_ep_len=400,
-                 max_training_timesteps = int(1e5),
+                 max_ep_len=200,
+                 max_training_timesteps = int(1e6),
                  save_model_freq = int(2e4),
-                 action_std=None):
+                 action_std=None,
+                 filename_prefix=None):
         
         self.env_name = env_name
         self.agent = agent
         self.env = gym.make(env_name)
         self.has_continuous_action_space = has_continuous_action_space
+        self.filename = filename_prefix
 
         self.max_ep_len = max_ep_len                    # max timesteps in one episode
         self.max_training_timesteps = max_training_timesteps   # break training loop if timeteps > max_training_timesteps
@@ -99,15 +102,22 @@ class PPOTrainer:
         self.print_freq = self.max_ep_len * 4     # print avg reward in the interval (in num timesteps)
         self.log_freq = self.max_ep_len * 2       # log avg reward in the interval (in num timesteps)
         self.save_model_freq = save_model_freq      # save model frequency (in num timesteps)
-
+        
+        self.action_std_decay_freq = int(2.5e5)  # action_std decay frequency (in num timesteps)
+        self.min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
         self.action_std = action_std
+        self.action_std_decay_rate = 0.05
 
         self.update_timestep = self.max_ep_len * 4      # update policy every n timesteps
+        self.K_epochs = 100  
 
         self.random_seed = 0     
-        self.log_dir = "models\\PPO_logs"
+        self.log_dir = "models" + '/' + "PPO_logs"
         self.log_f_name = ""
         self.checkpoint_path = ""
+
+        self.scores = []  # Stores total episode rewards
+        self.timesteps = []  # Stores timestep count per episode
     
     def init_train(self):
         
@@ -117,6 +127,7 @@ class PPOTrainer:
         self.log_dir = self.log_dir + '/' + self.env_name + '/'
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
+            logger.log("info", f"{self.log_dir} created")
 
         run_num = 0
         current_num_files = next(os.walk(self.log_dir))[2]
@@ -126,29 +137,31 @@ class PPOTrainer:
         #### create new log file for each run 
         self.log_f_name = self.log_dir + '/PPO_' + self.env_name + "_log_" + str(run_num) + ".csv"
 
-        print("current logging run number for " + self.env_name + " : ", run_num)
-        print("logging at : " + self.log_f_name)
+        logger.log("info", f"current logging run number for {self.env_name}  :  {run_num}")
+        logger.log("info", f"logging at : {self.log_f_name}")
 
         run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
 
-        directory = "PPO_preTrained"
+        directory = 'result' + '/' + 'PPO_preTrained'
         if not os.path.exists(directory):
             os.makedirs(directory)
+            logger.log("info", f"{directory} created")
 
         directory = directory + '/' + self.env_name + '/'
         if not os.path.exists(directory):
             os.makedirs(directory)
+            logger.log("info", f"{directory} created")
 
 
-        checkpoint_path = directory + "PPO_{}_{}_{}.pth".format(self.env_name, self.random_seed, run_num_pretrained)
-        print("save checkpoint path : " + checkpoint_path)
+        self.checkpoint_path = directory + "PPO_{}_{}_{}.pth".format(self.env_name, self.random_seed, run_num_pretrained)
+        logger.log("info", f"save checkpoint path : {self.checkpoint_path}")
 
 
 
     def train(self):
         self.init_train()
         start_time = datetime.now().replace(microsecond=0)
-        print("Started training at (GMT) : ", start_time)
+        logger.log("info", f"Started training at (GMT) : {start_time}")
         log_f = open(self.log_f_name,"w+")
         log_f.write('episode,timestep,reward\n')
 
@@ -185,6 +198,10 @@ class PPOTrainer:
                 if time_step % self.update_timestep == 0:
                     self.agent.update()
 
+                # if continuous action space; then decay action std of ouput action distribution
+                if self.has_continuous_action_space and time_step % self.action_std_decay_freq == 0:
+                    self.agent.decay_action_std(self.action_std_decay_rate, self.min_action_std)
+
                 # log in logging file
                 if time_step % self.log_freq == 0:
 
@@ -212,16 +229,19 @@ class PPOTrainer:
                     
                 # save model weights
                 if time_step % self.save_model_freq == 0:
-                    print("--------------------------------------------------------------------------------------------")
-                    print("saving model at : " + self.checkpoint_path)
+                    #print("--------------------------------------------------------------------------------------------")
+                    logger.log("info", f"saving model at : {self.checkpoint_path}")
                     self.agent.save(self.checkpoint_path)
-                    print("model saved")
-                    print("Elapsed Time  : ", datetime.now().replace(microsecond=0) - start_time)
-                    print("--------------------------------------------------------------------------------------------")
+                    logger.log("info", "model saved")
+                    logger.log("info", f"Elapsed Time  : {datetime.now().replace(microsecond=0) - start_time}")
+                    #print("--------------------------------------------------------------------------------------------")
                     
                 # break; if the episode is over
                 if done:
                     break
+            
+            self.scores.append(current_ep_reward)
+            self.timesteps.append(time_step)
 
             print_running_reward += current_ep_reward
             print_running_episodes += 1
@@ -231,9 +251,20 @@ class PPOTrainer:
 
             i_episode += 1
 
-
+        os.makedirs(self.filename, exist_ok=True)
+        self.get_results(self.filename)
         log_f.close()
         self.env.close()
+
+    
+    def get_results(self, filename_prefix):
+        """
+        Get the collected training results and save them as .npy files.
+        """
+        np.save(f"{filename_prefix}\\scores.npy", np.array(self.scores))
+        np.save(f"{filename_prefix}\\timesteps.npy", np.array(self.timesteps))
+        logger.log("info", f"Results saved: {filename_prefix}_scores.npy, {filename_prefix}_timesteps.npy")
+        
 
 
 class QTrainer:
