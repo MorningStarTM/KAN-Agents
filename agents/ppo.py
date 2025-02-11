@@ -31,35 +31,34 @@ class RolloutBuffer:
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init, n_layers):
+    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init):
         super(ActorCritic, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = has_continuous_action_space
 
-        self.hidden_layers = n_layers or [256, 256]  # Default hidden layer sizes
-
-        
         if has_continuous_action_space:
             self.action_dim = action_dim
             self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
 
-        layers = []
-        input_size = state_dim
-
-        for hidden_size in self.hidden_layers:
-            layers.append(nn.Linear(input_size, hidden_size))
-            layers.append(nn.ReLU())
-            input_size = hidden_size
-
-        layers.append(nn.Linear(input_size, action_dim))
-
-        if has_continuous_action_space:
-            layers.append(nn.Tanh())
+        # actor
+        if has_continuous_action_space :
+            self.actor = nn.Sequential(
+                            nn.Linear(state_dim, 64),
+                            nn.Tanh(),
+                            nn.Linear(64, 64),
+                            nn.Tanh(),
+                            nn.Linear(64, action_dim),
+                            nn.Tanh()
+                        )
         else:
-            layers.append(nn.Softmax(dim=-1))
-
-
-        self.actor = nn.Sequential(*layers)
+            self.actor = nn.Sequential(
+                            nn.Linear(state_dim, 64),
+                            nn.Tanh(),
+                            nn.Linear(64, 64),
+                            nn.Tanh(),
+                            nn.Linear(64, action_dim),
+                            nn.Softmax(dim=-1)
+                        )
 
         self.critic = nn.Sequential(
                         nn.Linear(state_dim, 64),
@@ -142,8 +141,7 @@ class PPOAgent:
 
         self.policy = ActorCritic(self.config['state_dim'], 
                                   self.config['action_dim'], self.config['has_continuous_action_space'], 
-                                  self.config['action_std_init'],
-                                  self.config['n_layers']).to(self.device)
+                                  self.config['action_std_init']).to(self.device)
         
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
@@ -152,8 +150,7 @@ class PPOAgent:
 
         self.policy_old = ActorCritic(self.config['state_dim'], 
                                       self.config['action_dim'], self.has_continuous_action_space, 
-                                      self.config['action_std_init'],
-                                      self.config['n_layers']).to(self.device)
+                                      self.config['action_std_init']).to(self.device)
         
         self.policy_old.load_state_dict(self.policy.state_dict())
         

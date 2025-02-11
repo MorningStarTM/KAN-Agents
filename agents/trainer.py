@@ -84,7 +84,7 @@ class PPOTrainer:
                  env_name, 
                  agent:PPOAgent,
                  has_continuous_action_space=False, 
-                 max_ep_len=200,
+                 max_ep_len=400,
                  max_training_timesteps = int(1e6),
                  save_model_freq = int(2e4),
                  action_std=None,
@@ -93,6 +93,7 @@ class PPOTrainer:
         self.env_name = env_name
         self.agent = agent
         self.env = gym.make(env_name)
+        logger.log("info", f"{env_name} is loaded")
         self.has_continuous_action_space = has_continuous_action_space
         self.filename = filename_prefix
 
@@ -109,7 +110,7 @@ class PPOTrainer:
         self.action_std_decay_rate = 0.05
 
         self.update_timestep = self.max_ep_len * 4      # update policy every n timesteps
-        self.K_epochs = 100  
+        self.K_epochs = 40  
 
         self.random_seed = 0     
         self.log_dir = "models" + '/' + "PPO_logs"
@@ -268,14 +269,16 @@ class PPOTrainer:
 
 
 class QTrainer:
-    def __init__(self, agent:DQNAgent, env, n_episode=1000):
+    def __init__(self, agent:DQNAgent, env_name, n_episode=1000):
         self.agent = agent
-        self.env = env
+        self.env_name = env_name
+        self.env = gym.make(env_name)
         self.n_episode = n_episode
         self.best_score = 0
         self.scores = []  # To store scores for each episode
         self.eps_history = []  # To store epsilon values for each episode
 
+        logger.log("info", f"{env_name} is loaded")
 
     def train(self, filename):
         logger.log(f"info", "Training started")
@@ -301,7 +304,7 @@ class QTrainer:
             avg_score = np.mean(self.scores[-100:])
             if self.best_score < score:
                 self.best_score = score
-                self.agent.save_model(f"models\\{self.agent.name}.pth")
+                self.agent.save_model(f"models\\{self.agent.name}_{self.env_name}.pth")
 
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
