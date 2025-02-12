@@ -5,7 +5,7 @@ import numpy as np
 from .csv_logger import CSVLogger
 from collections import deque
 import torch
-import gym
+import gymnasium as gym
 from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
 from agents.ppo import PPOAgent
@@ -79,183 +79,175 @@ class Trainer:
 
     
 
+
 class PPOTrainer:
-    def __init__(self,
-                 env_name, 
-                 agent:PPOAgent,
-                 has_continuous_action_space=False, 
-                 max_ep_len=400,
-                 max_training_timesteps = int(1e6),
-                 save_model_freq = int(2e4),
-                 action_std=None,
-                 filename_prefix=None):
-        
-        self.env_name = env_name
+    def __init__(self, agent:PPOAgent, env_name, config):
         self.agent = agent
+        self.env_name = env_name
+        self.config = config
+
+        # Extract config parameters
+        self.has_continuous_action_space = config['has_continuous_action_space']
+        self.max_ep_len = config['max_ep_len']
+        self.max_training_timesteps = config['max_training_timesteps']
+        self.print_freq = config['print_freq']
+        self.log_freq = config['log_freq']
+        self.save_model_freq = config['save_model_freq']
+        self.action_std_decay_rate = config['action_std_decay_rate']
+        self.action_std_decay_freq = config['action_std_decay_freq']
+        self.min_action_std = config['min_action_std']
+        self.update_timestep = config['update_timestep']
+        self.K_epochs = config['K_epochs']
+        self.eps_clip = config['eps_clip']
+        self.gamma = config['gamma']
+        self.lr_actor = config['lr_actor']
+        self.lr_critic = config['lr_critic']
+        self.random_seed = config['random_seed']
+
+        # Environment
         self.env = gym.make(env_name)
-        logger.log("info", f"{env_name} is loaded")
-        self.has_continuous_action_space = has_continuous_action_space
-        self.filename = filename_prefix
+        logger.log("info", f"{env_name} loaded")
+        self.state_dim = self.env.observation_space.shape[0]
+        self.action_dim = self.env.action_space.shape[0] if self.has_continuous_action_space else self.env.action_space.n
 
-        self.max_ep_len = max_ep_len                    # max timesteps in one episode
-        self.max_training_timesteps = max_training_timesteps   # break training loop if timeteps > max_training_timesteps
+        # Logging setup
+        self.log_dir = os.path.join("result", self.agent.name)
+        os.makedirs(self.log_dir, exist_ok=True)
+        logger.log("info", f"{self.log_dir} is created")
 
-        self.print_freq = self.max_ep_len * 4     # print avg reward in the interval (in num timesteps)
-        self.log_freq = self.max_ep_len * 2       # log avg reward in the interval (in num timesteps)
-        self.save_model_freq = save_model_freq      # save model frequency (in num timesteps)
-        
-        self.action_std_decay_freq = int(2.5e5)  # action_std decay frequency (in num timesteps)
-        self.min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
-        self.action_std = action_std
-        self.action_std_decay_rate = 0.05
+        self.log_dir = os.path.join(self.log_dir, self.env_name)
+        os.makedirs(self.log_dir, exist_ok=True)
+        logger.log("info", f"{self.log_dir} is created")
 
-        self.update_timestep = self.max_ep_len * 4      # update policy every n timesteps
-        self.K_epochs = 40  
-
-        self.random_seed = 0     
-        self.log_dir = "models" + '/' + "PPO_logs"
-        self.log_f_name = ""
-        self.checkpoint_path = ""
-
-        self.scores = []  # Stores total episode rewards
-        self.timesteps = []  # Stores timestep count per episode
-    
-    def init_train(self):
-        
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
-
-        self.log_dir = self.log_dir + '/' + self.env_name + '/'
-        if not os.path.exists(self.log_dir):
-            os.makedirs(self.log_dir)
-            logger.log("info", f"{self.log_dir} created")
-
-        run_num = 0
         current_num_files = next(os.walk(self.log_dir))[2]
         run_num = len(current_num_files)
 
+        self.log_f_name = os.path.join(self.log_dir, f'{self.agent.name}_{self.env_name}_log_{run_num}.csv')
 
-        #### create new log file for each run 
-        self.log_f_name = self.log_dir + '/PPO_' + self.env_name + "_log_" + str(run_num) + ".csv"
-
-        logger.log("info", f"current logging run number for {self.env_name}  :  {run_num}")
+        logger.log("info", f"current logging run number for {self.env_name} : {run_num}")
         logger.log("info", f"logging at : {self.log_f_name}")
 
-        run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
+        # Checkpoint setup
+        run_num_pretrained = 0
+        directory = "PPO_preTrained"
+        os.makedirs(directory, exist_ok=True)
 
-        directory = 'result' + '/' + self.agent.name
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            logger.log("info", f"{directory} created")
+        directory = os.path.join(directory, self.env_name)
+        os.makedirs(directory, exist_ok=True)
 
-        directory = directory + '/' + self.env_name + '/'
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            logger.log("info", f"{directory} created")
-
-
-        self.checkpoint_path = directory + "{}_{}_{}_{}.pth".format(self.agent.name, self.env_name, self.random_seed, run_num_pretrained)
+        self.checkpoint_path = os.path.join(directory, f"{self.agent.name}_{self.env_name}_{self.random_seed}_{run_num_pretrained}.pth")
         logger.log("info", f"save checkpoint path : {self.checkpoint_path}")
 
+        # Training metadata logging
+        logger.log("info", f"max training timesteps : {self.max_training_timesteps}")
+        logger.log("info", f"max timesteps per episode : {self.max_ep_len}")
+        logger.log("info", f"model saving frequency : {self.save_model_freq} timesteps")
+        logger.log("info", f"log frequency : {self.log_freq} timesteps")
+        logger.log("info", f"printing average reward over episodes in last : {self.print_freq} timesteps")
+        logger.log("info", f"state space dimension : {self.state_dim}")
+        logger.log("info", f"action space dimension : {self.action_dim}")
 
+        if self.has_continuous_action_space:
+            logger.log("info", f"Initializing a continuous action space policy")
+            logger.log("info", f"starting std of action distribution : {config['action_std']}")
+            logger.log("info", f"decay rate of std of action distribution : {self.action_std_decay_rate}")
+            logger.log("info", f"minimum std of action distribution : {self.min_action_std}")
+            logger.log("info", f"decay frequency of std of action distribution : {self.action_std_decay_freq} timesteps")
+        else:
+            logger.log("info", "Initializing a discrete action space policy")
+
+        logger.log("info", f"PPO update frequency : {self.update_timestep} timesteps")
+        logger.log("info", f"PPO K epochs : {self.K_epochs}")
+        logger.log("info", f"PPO epsilon clip : {self.eps_clip}")
+        logger.log("info", f"discount factor (gamma) : {self.gamma}")
+        logger.log("info", f"optimizer learning rate actor : {self.lr_actor}")
+        logger.log("info", f"optimizer learning rate critic : {self.lr_critic}")
+
+        if self.random_seed:
+            logger.log("info", f"setting random seed to {self.random_seed}")
+            torch.manual_seed(self.random_seed)
+            np.random.seed(self.random_seed)
+            self.env.seed(self.random_seed)
 
     def train(self):
-        self.init_train()
         start_time = datetime.now().replace(microsecond=0)
         logger.log("info", f"Started training at (GMT) : {start_time}")
-        log_f = open(self.log_f_name,"w+")
+
+        log_f = open(self.log_f_name, "w+")
         log_f.write('episode,timestep,reward\n')
 
-
-        # printing and logging variables
+        # Training loop variables
         print_running_reward = 0
         print_running_episodes = 0
-
         log_running_reward = 0
         log_running_episodes = 0
-
         time_step = 0
         i_episode = 0
 
         while time_step <= self.max_training_timesteps:
-            
             state, _ = self.env.reset()
             current_ep_reward = 0
 
-            for t in range(1, self.max_ep_len+1):
-                
-                # select action with policy
+            for t in range(1, self.max_ep_len + 1):
                 action = self.agent.select_action(state)
                 state, reward, done, _, _ = self.env.step(action)
-                
-                # saving reward and is_terminals
+
                 self.agent.buffer.rewards.append(reward)
                 self.agent.buffer.is_terminals.append(done)
-                
-                time_step +=1
+
+                time_step += 1
                 current_ep_reward += reward
 
-                # update PPO agent
+                # Update PPO
                 if time_step % self.update_timestep == 0:
                     self.agent.update()
 
-                # if continuous action space; then decay action std of ouput action distribution
+                # Decay action standard deviation (if applicable)
                 if self.has_continuous_action_space and time_step % self.action_std_decay_freq == 0:
                     self.agent.decay_action_std(self.action_std_decay_rate, self.min_action_std)
 
-                # log in logging file
+                # Log results
                 if time_step % self.log_freq == 0:
-
-                    # log average reward till last episode
-                    log_avg_reward = log_running_reward / log_running_episodes
+                    log_avg_reward = log_running_reward / max(log_running_episodes, 1)
                     log_avg_reward = round(log_avg_reward, 4)
 
-                    log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+                    log_f.write(f'{i_episode},{time_step},{log_avg_reward}\n')
                     log_f.flush()
 
                     log_running_reward = 0
                     log_running_episodes = 0
 
-                # printing average reward
+                # Print results
                 if time_step % self.print_freq == 0:
-
-                    # print average reward till last episode
-                    print_avg_reward = print_running_reward / print_running_episodes
+                    print_avg_reward = print_running_reward / max(print_running_episodes, 1)
                     print_avg_reward = round(print_avg_reward, 2)
 
-                    print("Episode : {} \t\t Timestep : {} \t\t Average Reward : {}".format(i_episode, time_step, print_avg_reward))
+                    logger.log("info", f"Episode: {i_episode}, Timestep: {time_step}, Average Reward: {print_avg_reward}")
 
                     print_running_reward = 0
                     print_running_episodes = 0
-                    
-                # save model weights
+
+                # Save model checkpoint
                 if time_step % self.save_model_freq == 0:
-                    #print("--------------------------------------------------------------------------------------------")
                     logger.log("info", f"saving model at : {self.checkpoint_path}")
                     self.agent.save(self.checkpoint_path)
                     logger.log("info", "model saved")
                     logger.log("info", f"Elapsed Time  : {datetime.now().replace(microsecond=0) - start_time}")
-                    #print("--------------------------------------------------------------------------------------------")
-                    
-                # break; if the episode is over
+
                 if done:
                     break
-            
-            self.scores.append(current_ep_reward)
-            self.timesteps.append(time_step)
 
             print_running_reward += current_ep_reward
             print_running_episodes += 1
-
             log_running_reward += current_ep_reward
             log_running_episodes += 1
 
             i_episode += 1
 
-        os.makedirs(self.filename, exist_ok=True)
-        self.get_results(self.filename)
+        self.get_results(self.config['filename'])
         log_f.close()
         self.env.close()
+
 
     
     def get_results(self, filename_prefix):

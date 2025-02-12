@@ -60,6 +60,8 @@ class ActorCritic(nn.Module):
                             nn.Softmax(dim=-1)
                         )
 
+        
+        # critic
         self.critic = nn.Sequential(
                         nn.Linear(state_dim, 64),
                         nn.Tanh(),
@@ -68,7 +70,6 @@ class ActorCritic(nn.Module):
                         nn.Linear(64, 1)
                     )
         
-
     def set_action_std(self, new_action_std):
 
         if self.has_continuous_action_space:
@@ -78,11 +79,13 @@ class ActorCritic(nn.Module):
             print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
             print("--------------------------------------------------------------------------------------------")
 
+
     def forward(self):
         raise NotImplementedError
     
+
     def act(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
+
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
@@ -99,7 +102,7 @@ class ActorCritic(nn.Module):
     
 
     def evaluate(self, state, action):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
+
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             action_var = self.action_var.expand_as(action_mean)
@@ -140,19 +143,13 @@ class PPOAgent:
         
         self.buffer = RolloutBuffer()
 
-        self.policy = ActorCritic(self.config['state_dim'], 
-                                  self.config['action_dim'], self.config['has_continuous_action_space'], 
-                                  self.config['action_std_init']).to(self.device)
-        
+        self.policy = ActorCritic(self.config['state_dim'], self.config['action_dim'], self.has_continuous_action_space, self.config['action_std_init']).to(self.device)
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
                         {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
                     ])
 
-        self.policy_old = ActorCritic(self.config['state_dim'], 
-                                      self.config['action_dim'], self.has_continuous_action_space, 
-                                      self.config['action_std_init']).to(self.device)
-        
+        self.policy_old = ActorCritic(self.config['state_dim'], self.config['action_dim'], self.has_continuous_action_space, self.config['action_std_init']).to(self.device)
         self.policy_old.load_state_dict(self.policy.state_dict())
         
         self.MseLoss = nn.MSELoss()
@@ -194,7 +191,7 @@ class PPOAgent:
 
         if self.has_continuous_action_space:
             with torch.no_grad():
-                state = torch.tensor(state, dtype=torch.float32).to(self.device)
+                state = torch.FloatTensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
 
             self.buffer.states.append(state)
@@ -206,7 +203,7 @@ class PPOAgent:
 
         else:
             with torch.no_grad():
-                state = torch.tensor(state, dtype=torch.float32).to(self.device)
+                state = torch.FloatTensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
             
             self.buffer.states.append(state)
@@ -215,7 +212,7 @@ class PPOAgent:
             self.buffer.state_values.append(state_val)
 
             return action.item()
-        
+
 
     def update(self):
 
@@ -240,6 +237,7 @@ class PPOAgent:
 
         # calculate advantages
         advantages = rewards.detach() - old_state_values.detach()
+        
 
         # Optimize policy for K epochs
         for _ in range(self.K_epochs):
@@ -270,8 +268,8 @@ class PPOAgent:
 
         # clear buffer
         self.buffer.clear()
-
-
+    
+    
     def save(self, checkpoint_path):
         torch.save(self.policy_old.state_dict(), checkpoint_path)
    
@@ -279,7 +277,7 @@ class PPOAgent:
     def load(self, checkpoint_path):
         self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
         self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-
+        
 
 
 
