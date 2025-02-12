@@ -104,6 +104,9 @@ class PPOTrainer:
         self.lr_critic = config['lr_critic']
         self.random_seed = config['random_seed']
 
+        self.scores = []  # Stores total episode rewards
+        self.timesteps = []  # Stores timestep count per episode
+
         # Environment
         self.env = gym.make(env_name)
         logger.log("info", f"{env_name} loaded")
@@ -129,7 +132,7 @@ class PPOTrainer:
 
         # Checkpoint setup
         run_num_pretrained = 0
-        directory = "PPO_preTrained"
+        directory = "result"
         os.makedirs(directory, exist_ok=True)
 
         directory = os.path.join(directory, self.env_name)
@@ -236,6 +239,9 @@ class PPOTrainer:
 
                 if done:
                     break
+            
+            self.scores.append(current_ep_reward)
+            self.timesteps.append(time_step)
 
             print_running_reward += current_ep_reward
             print_running_episodes += 1
@@ -244,7 +250,7 @@ class PPOTrainer:
 
             i_episode += 1
 
-        self.get_results(self.config['filename'])
+        self.get_results(f"result\\{self.agent.name}\\{self.env_name}")
         log_f.close()
         self.env.close()
 
