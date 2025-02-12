@@ -142,7 +142,6 @@ packaging==23.2
 pandas==2.0.3
 pandocfilters==1.5.0
 parso==0.8.3
-PatientConditonClassification==0.0.0
 pickleshare==0.7.5
 Pillow==10.0.1
 pip==23.3
