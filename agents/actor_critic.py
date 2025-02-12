@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from .kan import KANLayer
 import os
-
+from torch.distributions import Categorical
 
 class KANActorCriticNetwork(nn.Module):
     def __init__(self, input_dims=4, fc1_dims=16, fc2_dims=32, n_actions=2, lr=0.0003):
@@ -160,15 +160,25 @@ class DiscreteActorCritic(object):
         self.log_probs = None
         self.name = "Discrete Actor Critic"
         self.alpha = alpha
-
+        self.logprobs = []
+        self.state_values = []
+        self.rewards = []
 
     def choose_action(self, observation):
-        probabilities = F.softmax(self.actor.forward(observation.unsqueeze(0)))
-        action_probs = torch.distributions.Categorical(probabilities)
-        action = action_probs.sample()
-        self.log_probs = action_probs.log_prob(action)
-
+        state = torch.from_numpy(observation).float()
+        state = F.relu(self.affine(state))
+        
+        state_value = self.value_layer(state)
+        
+        action_probs = F.softmax(self.action_layer(state))
+        action_distribution = Categorical(action_probs)
+        action = action_distribution.sample()
+        
+        self.logprobs.append(action_distribution.log_prob(action))
+        self.state_values.append(state_value)
+        
         return action.item()
+    
 
     def learn(self, state, reward, new_state, done):
         self.actor.optimizer.zero_grad()

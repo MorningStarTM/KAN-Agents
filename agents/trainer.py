@@ -143,7 +143,7 @@ class PPOTrainer:
 
         run_num_pretrained = 0      #### change this to prevent overwriting weights in same env_name folder
 
-        directory = 'result' + '/' + 'PPO_preTrained'
+        directory = 'result' + '/' + self.agent.name
         if not os.path.exists(directory):
             os.makedirs(directory)
             logger.log("info", f"{directory} created")
@@ -154,7 +154,7 @@ class PPOTrainer:
             logger.log("info", f"{directory} created")
 
 
-        self.checkpoint_path = directory + "PPO_{}_{}_{}.pth".format(self.env_name, self.random_seed, run_num_pretrained)
+        self.checkpoint_path = directory + "{}_{}_{}_{}.pth".format(self.agent.name, self.env_name, self.random_seed, run_num_pretrained)
         logger.log("info", f"save checkpoint path : {self.checkpoint_path}")
 
 

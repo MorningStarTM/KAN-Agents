@@ -46,20 +46,18 @@ class ReplayBuffer():
 
 
 class CriticNetwork(nn.Module):
-    def __init__(self, beta, input_dim, n_actions, fc1_dims=256, fc2_dims=256, name='Critic', chkpt_dir='tmp/sac'):
+    def __init__(self, beta, input_dim, n_actions, name='Critic', chkpt_dir='tmp/sac'):
         super(CriticNetwork, self).__init__()
 
         self.input_dims = input_dim
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
 
-        self.fc1 = nn.Linear(self.input_dims[0]+n_actions, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        self.q = nn.Linear(self.fc2_dims, 1)
+        self.fc1 = nn.Linear(self.input_dims[0]+n_actions, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.q = nn.Linear(256, 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -87,18 +85,16 @@ class CriticNetwork(nn.Module):
 
 
 class ValueNetwork(nn.Module):
-    def __init__(self, beta, input_dims, fc1_dims=256, fc2_dims=256, name='Value', chkpt_dir='tmp/sac'):
+    def __init__(self, beta, input_dims, name='Value', chkpt_dir='tmp/sac'):
         super(ValueNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
 
-        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        self.v = nn.Linear(self.fc2_dims, 1)
+        self.fc1 = nn.Linear(*self.input_dims, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.v = nn.Linear(256, 1)
 
         self.optimizer = optim.Adam(self.parameters(), lr=beta)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -124,22 +120,29 @@ class ValueNetwork(nn.Module):
 
 
 class ActorNetwork(nn.Module):
-    def __init__(self, alpha, input_dims, max_action, fc1_dims=256, fc2_dims=256, n_actions=2, name='actor', chkpt_dir='tmp/sac'):
+    def __init__(self, alpha, input_dims, max_action, n_layers, n_actions, name='actor', chkpt_dir='tmp/sac'):
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
-        self.fc1_dims = fc1_dims
-        self.fc2_dims = fc2_dims
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
         self.max_action = max_action
         self.reparam_noise = 1e-6
+        self.hidden_layers = n_layers or [256, 256]
 
-        self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
-        self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
-        self.mu = nn.Linear(self.fc2_dims, self.n_actions)
-        self.sigma = nn.Linear(self.fc2_dims, self.n_actions)
+        layers = []
+        input_size = self.input_dims
+
+        for hidden_size in self.hidden_layers:
+            layers.append(nn.Linear(input_size, hidden_size))
+            layers.append(nn.ReLU())
+            input_size = hidden_size
+
+        self.model = nn.Sequential(*layers)
+
+        self.mu = nn.Linear(self.hidden_layers[-1], self.n_actions)
+        self.sigma = nn.Linear(self.hidden_layers[-1], self.n_actions)
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -148,15 +151,15 @@ class ActorNetwork(nn.Module):
 
 
     def forward(self, state):
-        prob = self.fc1(state)
-        prob = F.relu(state)
-        prob = self.fc2(prob)
-        prob = F.relu(prob)
+        x = self.model(state)
 
-        mu = self.mu(prob)
-        sigma = self.sigma(prob)
+        mu = self.mu(x)
+        mu = torch.tanh(mu) * self.max_action  # Scale actions within [-max_action, max_action]
 
-        sigma = torch.clamp(sigma, min=self.reparam_noise, max=1)
+        # Standard deviation (sigma) of the action
+        sigma = self.sigma(x)
+        sigma = torch.clamp(sigma, min=-20, max=2)  # Prevent extremely large values
+        sigma = torch.exp(sigma)  # Convert to positive values (log standard deviation)
 
         return mu, sigma
     

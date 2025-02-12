@@ -127,6 +127,7 @@ class ActorCritic(nn.Module):
 class PPOAgent:
     def __init__(self, config):
         self.config = config
+        self.name = "PPO"
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = self.config['has_continuous_action_space']
 
@@ -288,31 +289,32 @@ class PPOAgent:
 
 
 class KANActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init, n_layers):
-        super(ActorCritic, self).__init__()
+    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init=0.6):
+        super(KANActorCritic, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = has_continuous_action_space
 
-        self.hidden_layers = n_layers or [256, 256]  # Default hidden layer sizes
-
-        
         if has_continuous_action_space:
             self.action_dim = action_dim
             self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
 
-        layers = []
-        layer_dims = [state_dim] + self.hidden_layers + [action_dim]
-
-        for i in range(0, len(layer_dims) - 2, 2):
-            # Pass three arguments to KANLayer: input, intermediate, output dims
-            layers.append(KANLayer([layer_dims[i], layer_dims[i + 1], layer_dims[i + 2]]))
-
-
-        self.actor = nn.Sequential(*layers)
+        # actor
+        if has_continuous_action_space :
+            self.actor = nn.Sequential(
+                            KANLayer([state_dim, 64, 128]),
+                            KANLayer([128, 64, action_dim]),
+                            nn.Tanh()
+                        )
+        else:
+            self.actor = nn.Sequential(
+                            KANLayer([state_dim, 64, 128]),
+                            KANLayer([128, 64, action_dim]),
+                            nn.Softmax(dim=-1)
+                        )
 
         self.critic = nn.Sequential(
-                        KANLayer(state_dim, 64, 128),
-                        KANLayer(128, 64, 1)
+                        KANLayer([state_dim, 64, 128]),
+                        KANLayer([128, 64, 1])
                     )
         
 
@@ -374,6 +376,7 @@ class KANActorCritic(nn.Module):
 class KANPPOAgent:
     def __init__(self, config):
         self.config = config
+        self.name = "KAN-PPO"
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.has_continuous_action_space = self.config['has_continuous_action_space']
 
@@ -386,18 +389,16 @@ class KANPPOAgent:
         
         self.buffer = RolloutBuffer()
 
-        self.policy = ActorCritic(self.config['state_dim'], 
-                                  self.config['action_dim'], self.config['has_continuous_action_space'], 
-                                  self.config['action_std_init']).to(self.device)
+        self.policy = KANActorCritic(self.config['state_dim'], 
+                                  self.config['action_dim'], self.config['has_continuous_action_space'], ).to(self.device)
         
         self.optimizer = torch.optim.Adam([
                         {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
                         {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
                     ])
 
-        self.policy_old = ActorCritic(self.config['state_dim'], 
-                                      self.config['action_dim'], self.has_continuous_action_space, 
-                                      self.config['action_std_init']).to(self.device)
+        self.policy_old = KANActorCritic(self.config['state_dim'], 
+                                      self.config['action_dim'], self.has_continuous_action_space).to(self.device)
         
         self.policy_old.load_state_dict(self.policy.state_dict())
         
