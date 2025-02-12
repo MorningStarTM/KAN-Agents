@@ -82,7 +82,7 @@ class ActorCritic(nn.Module):
         raise NotImplementedError
     
     def act(self, state):
-
+        state = torch.tensor(state, dtype=torch.float32).to(self.device)
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
@@ -99,7 +99,7 @@ class ActorCritic(nn.Module):
     
 
     def evaluate(self, state, action):
-
+        state = torch.tensor(state, dtype=torch.float32).to(self.device)
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             action_var = self.action_var.expand_as(action_mean)
@@ -331,7 +331,7 @@ class KANActorCritic(nn.Module):
         raise NotImplementedError
     
     def act(self, state):
-
+        state = torch.tensor(state, dtype=torch.float32).to(self.device)
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
@@ -348,7 +348,7 @@ class KANActorCritic(nn.Module):
     
 
     def evaluate(self, state, action):
-
+        state = torch.tensor(state, dtype=torch.float32).to(self.device)
         if self.has_continuous_action_space:
             action_mean = self.actor(state)
             action_var = self.action_var.expand_as(action_mean)
