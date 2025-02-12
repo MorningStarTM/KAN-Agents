@@ -436,7 +436,6 @@ class KANPPOAgent:
 
 
     def select_action(self, state):
-        print(state, state.shape)
         if self.has_continuous_action_space:
             with torch.no_grad():
                 state = torch.tensor(state, dtype=torch.float32).to(self.device)
