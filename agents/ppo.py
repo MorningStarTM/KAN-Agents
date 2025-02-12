@@ -194,7 +194,7 @@ class PPOAgent:
 
         if self.has_continuous_action_space:
             with torch.no_grad():
-                state = torch.FloatTensor(state).to(self.device)
+                state = torch.tensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
 
             self.buffer.states.append(state)
@@ -206,7 +206,7 @@ class PPOAgent:
 
         else:
             with torch.no_grad():
-                state = torch.FloatTensor(state).to(self.device)
+                state = torch.tensor(state).to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
             
             self.buffer.states.append(state)
