@@ -2,7 +2,6 @@ import GPUtil
 import matplotlib.pyplot as plt
 import time
 import numpy as np
-from .csv_logger import CSVLogger
 from collections import deque
 import torch
 import gymnasium as gym
@@ -10,7 +9,7 @@ from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
 from agents.ppo import PPOAgent
 from utils.logger import CustomLogger
-
+import gymnasium as gym
 import os
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
@@ -73,14 +72,74 @@ class Trainer:
         print(f"Total Time: {self.total_duration} seconds")
 
         
-        #np.save("reward", self.history)
-        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.epochs, c_point=self.c_point, time=self.total_duration)
-        self.csvlogger.log()
+        
 
     
 
 
+
+#========================================================================================================================================================================
+
 class PPOTrainer:
+    def __init__(self, agent:PPOAgent, env_name:str, config):
+        
+        self.env = gym.make(env_name)
+        self.agent = agent
+        self.best_score = 0.0
+        self.score_history = []
+
+        self.learn_iters = 0
+        self.avg_score = 0
+        self.n_steps = 0
+        self.n_actions = config['n_actions']
+        self.N = config['N']
+        self.n_games = config['n_games']
+        self.n_epochs = config['n_epochs']
+        
+        
+
+    def train(self):
+        logger.log("info", "Training Started")
+        for i in range(self.n_games):
+            observation, _ = self.env.reset()
+            done = False
+            score = 0
+            while not done:
+                action, prob, val = self.agent.choose_action(observation)
+                observation_, reward, done, truncate, _ = self.env.step(action)
+                self.n_steps += 1
+                score += reward
+                self.agent.remember(observation, observation_, action, prob, val, reward, done)
+                if self.n_steps % self.N == 0:
+                    #logger.log("info", "Agent Learning")
+                    self.agent.learn()
+                    self.learn_iters += 1
+                observation = observation_
+            self.score_history.append(score)
+            self.avg_score = np.mean(self.score_history[-100:])
+
+            if self.avg_score > self.best_score:
+                self.best_score = self.avg_score
+                self.agent.save_models()
+                logger.log("info", "Model saved")
+
+            
+            print('episode', i, 'score %.1f' % score, 'avg score %.1f' % self.avg_score,
+                    'time_steps', self.n_steps, 'learning_steps', self.learn_iters)
+            
+            #if self.avg_score >= 200:
+            #    break
+
+
+#=======================================================================================================================================================================
+
+
+
+
+
+
+
+class OLDPPOTrainer:
     def __init__(self, agent:PPOAgent, env_name, config):
         self.agent = agent
         self.env_name = env_name
@@ -103,6 +162,7 @@ class PPOTrainer:
         self.lr_actor = config['lr_actor']
         self.lr_critic = config['lr_critic']
         self.random_seed = config['random_seed']
+        self.n_episodes = config['n_episodes']
 
         self.scores = []  # Stores total episode rewards
         self.timesteps = []  # Stores timestep count per episode
@@ -172,7 +232,95 @@ class PPOTrainer:
             np.random.seed(self.random_seed)
             self.env.seed(self.random_seed)
 
-    def train(self):
+    
+    def update(self):
+        start_time = datetime.now().replace(microsecond=0)
+        logger.log("info", f"Started training at (GMT) : {start_time}")
+
+        log_f = open(self.log_f_name, "w+")
+        log_f.write('episode,timestep,reward\n')
+
+        # Training loop variables
+        print_running_reward = 0
+        print_running_episodes = 0
+        log_running_reward = 0
+        log_running_episodes = 0
+        time_step = 0
+
+        # ⬇️ Change: Train for `n_episodes`, not `max_training_timesteps`
+        for i_episode in range(self.max_training_timesteps):
+            state, _ = self.env.reset()
+            current_ep_reward = 0
+
+            for t in range(1, self.max_ep_len + 1):
+                action = self.agent.select_action(state)
+                state, reward, done, truncated, _ = self.env.step(action)
+                
+                if self.config['reward_normalize']:
+                    normalized_reward = reward / self.config['reward_norm_rate']
+                    self.agent.buffer.rewards.append(normalized_reward)
+                    current_ep_reward += normalized_reward
+                else:
+                    self.agent.buffer.rewards.append(reward)
+                    current_ep_reward += reward
+
+                self.agent.buffer.is_terminals.append(done)
+
+                time_step += 1  # Track total timesteps
+
+                # ⬇️ PPO Update: Train at fixed intervals
+                if time_step % self.update_timestep == 0:
+                    self.agent.update()
+
+                # ⬇️ Decay action standard deviation (for continuous action spaces)
+                if self.has_continuous_action_space and time_step % self.action_std_decay_freq == 0:
+                    self.agent.decay_action_std(self.action_std_decay_rate, self.min_action_std)
+
+                if done or truncated:
+                    break  # ⬅️ Stop episode when `done` or `truncated`
+
+            # ⬇️ Store episode reward (same as DQN)
+            self.scores.append(current_ep_reward)
+
+            print_running_reward += current_ep_reward
+            print_running_episodes += 1
+            log_running_reward += current_ep_reward
+            log_running_episodes += 1
+
+            # ⬇️ Logging & Printing
+            if i_episode % self.log_freq == 0:
+                log_avg_reward = log_running_reward / max(log_running_episodes, 1)
+                log_avg_reward = round(log_avg_reward, 4)
+
+                log_f.write(f'{i_episode},{time_step},{log_avg_reward}\n')
+                log_f.flush()
+
+                log_running_reward = 0
+                log_running_episodes = 0
+
+            if i_episode % self.print_freq == 0:
+                print_avg_reward = print_running_reward / max(print_running_episodes, 1)
+                print_avg_reward = round(print_avg_reward, 2)
+
+                logger.log("info", f"Episode: {i_episode}, Timestep: {time_step}, Average Reward: {print_avg_reward}")
+
+                print_running_reward = 0
+                print_running_episodes = 0
+
+            # ⬇️ Save model checkpoint periodically
+            if i_episode % self.save_model_freq == 0:
+                logger.log("info", f"saving model at : {self.checkpoint_path}")
+                self.agent.save(self.checkpoint_path)
+                logger.log("info", "model saved")
+                logger.log("info", f"Elapsed Time  : {datetime.now().replace(microsecond=0) - start_time}")
+
+        log_f.close()
+        self.env.close()
+
+
+
+
+    def train__(self):
         start_time = datetime.now().replace(microsecond=0)
         logger.log("info", f"Started training at (GMT) : {start_time}")
 
@@ -187,19 +335,27 @@ class PPOTrainer:
         time_step = 0
         i_episode = 0
 
-        while time_step <= self.max_training_timesteps:
+        while i_episode in range(self.n_episodes):
             state, _ = self.env.reset()
             current_ep_reward = 0
 
             for t in range(1, self.max_ep_len + 1):
                 action = self.agent.select_action(state)
-                state, reward, done, _, _ = self.env.step(action)
+                state, reward, done, truncated, _ = self.env.step(action)
+                
+                if self.config['reward_normalize']:
+                    normalized_reward = reward / self.config['reward_norm_rate']
+                    self.agent.buffer.rewards.append(normalized_reward)
+                    current_ep_reward += normalized_reward
 
-                self.agent.buffer.rewards.append(reward)
+                else:
+                    self.agent.buffer.rewards.append(reward)
+                    current_ep_reward += reward
+
                 self.agent.buffer.is_terminals.append(done)
 
                 time_step += 1
-                current_ep_reward += reward
+                #current_ep_reward += reward
 
                 # Update PPO
                 if time_step % self.update_timestep == 0:
@@ -237,7 +393,7 @@ class PPOTrainer:
                     logger.log("info", "model saved")
                     logger.log("info", f"Elapsed Time  : {datetime.now().replace(microsecond=0) - start_time}")
 
-                if done:
+                if done or truncated:
                     break
             
             self.scores.append(current_ep_reward)
@@ -311,9 +467,7 @@ class QTrainer:
         total_end_time = time.time()
         self.total_duration = total_end_time - total_start_time
 
-        
-        self.csvlogger = CSVLogger(agent=self.agent, epochs=self.n_episode, c_point=i, time=self.total_duration)
-        self.csvlogger.log()
+
 
         x = [i+1 for i in range(self.n_episode)]
         
