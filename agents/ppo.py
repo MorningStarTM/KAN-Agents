@@ -1,525 +1,212 @@
 import os
-import glob
-import time
-from datetime import datetime
-
 import torch
 import torch.nn as nn
-from torch.distributions import MultivariateNormal
-from torch.distributions import Categorical
+import torch.nn.functional as F
+import torch.optim as optim
+import numpy as np
+from torch.distributions.categorical import Categorical
+from torch.distributions import Normal
 
-from .kan import KANLayer
 
-class RolloutBuffer:
-    def __init__(self):
-        self.actions = []
+class PPOMemory:
+    def __init__(self, batch_size):
         self.states = []
-        self.logprobs = []
+        self.next_states = []
+        self.probs = []
+        self.vals = []
+        self.actions = []
         self.rewards = []
-        self.state_values = []
-        self.is_terminals = []
+        self.dones = []
+
+        self.batch_size = batch_size
+
+    def generate_batches(self):
+        n_states = len(self.states)
+        batch_start = np.arange(0, n_states, self.batch_size)
+        indices = np.arange(n_states, dtype=np.int64)
+        np.random.shuffle(indices)
+        batches = [indices[i:i+self.batch_size] for i in batch_start]
+
+        return np.array(self.states), np.array(self.next_states), np.array(self.actions), np.array(self.probs),np.array(self.vals),np.array(self.rewards), np.array(self.dones), batches
     
+    def store_memory(self, state, next_state, action, probs, vals, reward, done):
+        self.states.append(state)
+        self.next_states.append(next_state)
+        self.actions.append(action)
+        self.probs.append(probs)
+        self.vals.append(vals)
+        self.rewards.append(reward)
+        self.dones.append(done)
 
-    def clear(self):
-        del self.actions[:]
-        del self.states[:]
-        del self.logprobs[:]
-        del self.rewards[:]
-        del self.state_values[:]
-        del self.is_terminals[:]
+    def clear_memory(self):
+        self.states = []
+        self.next_states = []
+        self.probs = []
+        self.actions = []
+        self.rewards = []
+        self.dones = []
+        self.vals = []
 
 
 
-class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init):
-        super(ActorCritic, self).__init__()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.has_continuous_action_space = has_continuous_action_space
+class ActorNetwork(nn.Module):
+    def __init__(self, n_actions, input_dims, alpha, chkpt_dir='models'):
+        super(ActorNetwork, self).__init__()
 
-        if has_continuous_action_space:
-            self.action_dim = action_dim
-            self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
+        self.checkpoint_file = os.path.join(chkpt_dir, 'actor_torch_ppo_14')
+        self.actor = nn.Sequential(
+                nn.Linear(input_dims, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, n_actions),
+                nn.Softmax(dim=-1)
+        )
 
-        # actor
-        if has_continuous_action_space :
-            self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, action_dim),
-                            nn.Tanh()
-                        )
-        else:
-            self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, 64),
-                            nn.Tanh(),
-                            nn.Linear(64, action_dim),
-                            nn.Softmax(dim=-1)
-                        )
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.to(self.device)
 
+    def forward(self, state):
+        dist = self.actor(state)
+        dist = Categorical(dist)
         
-        # critic
+        return dist
+
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
+
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
+
+
+
+class CriticNetwork(nn.Module):
+    def __init__(self, input_dims, alpha, chkpt_dir='models'):
+        super(CriticNetwork, self).__init__()
+
+        self.checkpoint_file = os.path.join(chkpt_dir, 'critic_torch_ppo_14')
         self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 64),
-                        nn.Tanh(),
-                        nn.Linear(64, 64),
-                        nn.Tanh(),
-                        nn.Linear(64, 1)
-                    )
-        
-    def set_action_std(self, new_action_std):
+                nn.Linear(input_dims, 64),
+                nn.ReLU(),
+                nn.Linear(64, 64),
+                nn.ReLU(),
+                nn.Linear(64, 1)
+        )
 
-        if self.has_continuous_action_space:
-            self.action_var = torch.full((self.action_dim,), new_action_std * new_action_std).to(self.device)
-        else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
+        self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.to(self.device)
 
+    def forward(self, state):
+        value = self.critic(state)
 
-    def forward(self):
-        raise NotImplementedError
-    
+        return value
 
-    def act(self, state):
+    def save_checkpoint(self):
+        torch.save(self.state_dict(), self.checkpoint_file)
 
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
-            dist = MultivariateNormal(action_mean, cov_mat)
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
-
-        action = dist.sample()
-        action_logprob = dist.log_prob(action)
-        state_val = self.critic(state)
-
-        return action.detach(), action_logprob.detach(), state_val.detach()
-    
-
-    def evaluate(self, state, action):
-
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            action_var = self.action_var.expand_as(action_mean)
-            cov_mat = torch.diag_embed(action_var).to(self.device)
-            dist = MultivariateNormal(action_mean, cov_mat)
-            
-            # for single action continuous environments
-            if self.action_dim == 1:
-                action = action.reshape(-1, self.action_dim)
-
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
-
-        action_logprobs = dist.log_prob(action)
-        dist_entropy = dist.entropy()
-        state_values = self.critic(state)
-        
-        return action_logprobs, state_values, dist_entropy
-    
+    def load_checkpoint(self):
+        self.load_state_dict(torch.load(self.checkpoint_file))
 
 
-#state_dim, action_dim, lr_actor, lr_critic, gamma, K_epochs, eps_clip, has_continuous_action_space, action_std_init=0.6
-
+#actor="normal", n_actions=4, input_dims=8, gamma=0.99, alpha=0.0003, gae_lambda=0.95, policy_clip=0.2, batch_size=64, n_epochs=10
 class PPOAgent:
     def __init__(self, config):
-        self.config = config
-        self.name = "PPO"
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.has_continuous_action_space = self.config['has_continuous_action_space']
+        self.gamma = config['gamma']
+        self.policy_clip = config['policy_clip']
+        self.n_epochs = config['n_epochs']
+        self.gae_lambda = config['gae_lambda']
+        self.name = "PPO-Agent"
+        self.alpha = config['alpha']
 
-        if self.has_continuous_action_space:
-            self.action_std = self.config['action_std_init']
-
-        self.gamma = self.config['gamma']
-        self.eps_clip = self.config['eps_clip']
-        self.K_epochs = self.config['K_epochs']
+        self.actor = ActorNetwork(config['n_actions'], config['input_dims'], self.alpha)
         
-        self.buffer = RolloutBuffer()
+        self.critic = CriticNetwork(config['input_dims'], self.alpha)
+        self.memory = PPOMemory(config['batch_size'])
+       
+    def remember(self, state, next_state, action, probs, vals, reward, done):
+        self.memory.store_memory(state, next_state, action, probs, vals, reward, done)
 
-        self.policy = ActorCritic(self.config['state_dim'], self.config['action_dim'], self.has_continuous_action_space, self.config['action_std_init']).to(self.device)
-        self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
-                        {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
-                    ])
+    def save_models(self):
+        #print('... saving models ...')
+        self.actor.save_checkpoint()
+        self.critic.save_checkpoint()
 
-        self.policy_old = ActorCritic(self.config['state_dim'], self.config['action_dim'], self.has_continuous_action_space, self.config['action_std_init']).to(self.device)
-        self.policy_old.load_state_dict(self.policy.state_dict())
-        
-        self.MseLoss = nn.MSELoss()
+    def load_models(self):
+        #print('... loading models ...')
+        self.actor.load_checkpoint()
+        self.critic.load_checkpoint()
 
+    def choose_action(self, observation):
+        state = torch.tensor([observation], dtype=torch.float).to(self.actor.device)
 
-    def set_action_std(self, new_action_std):
-        
-        if self.has_continuous_action_space:
-            self.action_std = new_action_std
-            self.policy.set_action_std(new_action_std)
-            self.policy_old.set_action_std(new_action_std)
-        
-        else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling PPO::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
-
-
-    def decay_action_std(self, action_std_decay_rate, min_action_std):
-        print("--------------------------------------------------------------------------------------------")
-
-        if self.has_continuous_action_space:
-            self.action_std = self.action_std - action_std_decay_rate
-            self.action_std = round(self.action_std, 4)
-            if (self.action_std <= min_action_std):
-                self.action_std = min_action_std
-                print("setting actor output action_std to min_action_std : ", self.action_std)
-            else:
-                print("setting actor output action_std to : ", self.action_std)
-            self.set_action_std(self.action_std)
-
-        else:
-            print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
-
-        print("--------------------------------------------------------------------------------------------")
-
-
-    def select_action(self, state):
-
-        if self.has_continuous_action_space:
-            with torch.no_grad():
-                state = torch.FloatTensor(state).to(self.device)
-                action, action_logprob, state_val = self.policy_old.act(state)
-
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.detach().cpu().numpy().flatten()
-
-        else:
-            with torch.no_grad():
-                state = torch.FloatTensor(state).to(self.device)
-                action, action_logprob, state_val = self.policy_old.act(state)
-            
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.item()
-
-
-    def update(self):
-
-        # Monte Carlo estimate of returns
-        rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
-            
-        # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # convert list to tensor
-        old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
-        old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
-        old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(self.device)
-        old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(self.device)
-
-        # calculate advantages
-        advantages = rewards.detach() - old_state_values.detach()
-        
-
-        # Optimize policy for K epochs
-        for _ in range(self.K_epochs):
-
-            # Evaluating old actions and values
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-
-            # match state_values tensor dimensions with rewards tensor
-            state_values = torch.squeeze(state_values)
-            
-            # Finding the ratio (pi_theta / pi_theta__old)
-            ratios = torch.exp(logprobs - old_logprobs.detach())
-
-            # Finding Surrogate Loss   
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-
-            # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
-            
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
-            
-        # Copy new weights into old policy
-        self.policy_old.load_state_dict(self.policy.state_dict())
-
-        # clear buffer
-        self.buffer.clear()
-    
-    
-    def save(self, checkpoint_path):
-        torch.save(self.policy_old.state_dict(), checkpoint_path)
-   
-
-    def load(self, checkpoint_path):
-        self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        
-
-
-
-# =======================================================================================
-# ================================ KAN - PPO ============================================
-# =======================================================================================
-
-
-class KANActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init=0.6):
-        super(KANActorCritic, self).__init__()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.has_continuous_action_space = has_continuous_action_space
-
-        if has_continuous_action_space:
-            self.action_dim = action_dim
-            self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
-
-        # actor
-        if has_continuous_action_space :
-            self.actor = nn.Sequential(
-                            KANLayer([state_dim, 64, 128]),
-                            KANLayer([128, 64, action_dim]),
-                            nn.Tanh()
-                        )
-        else:
-            self.actor = nn.Sequential(
-                            KANLayer([state_dim, 64, 128]),
-                            KANLayer([128, 64, action_dim]),
-                            nn.Softmax(dim=-1)
-                        )
-
-        self.critic = nn.Sequential(
-                        KANLayer([state_dim, 64, 128]),
-                        KANLayer([128, 64, 1])
-                    )
-        
-
-    def set_action_std(self, new_action_std):
-
-        if self.has_continuous_action_space:
-            self.action_var = torch.full((self.action_dim,), new_action_std * new_action_std).to(self.device)
-        else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling ActorCritic::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
-
-    def forward(self):
-        raise NotImplementedError
-    
-    def act(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            cov_mat = torch.diag(self.action_var).unsqueeze(dim=0)
-            dist = MultivariateNormal(action_mean, cov_mat)
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
-
+        dist = self.actor(state)
+        value = self.critic(state)
         action = dist.sample()
-        action_logprob = dist.log_prob(action)
-        state_val = self.critic(state)
 
-        return action.detach(), action_logprob.detach(), state_val.detach()
-    
+        probs = torch.squeeze(dist.log_prob(action)).item()
+        action = torch.squeeze(action).item()
+        value = torch.squeeze(value).item()
 
-    def evaluate(self, state, action):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        if self.has_continuous_action_space:
-            action_mean = self.actor(state)
-            action_var = self.action_var.expand_as(action_mean)
-            cov_mat = torch.diag_embed(action_var).to(self.device)
-            dist = MultivariateNormal(action_mean, cov_mat)
-            
-            # for single action continuous environments
-            if self.action_dim == 1:
-                action = action.reshape(-1, self.action_dim)
+        return action, probs, value
 
-        else:
-            action_probs = self.actor(state)
-            dist = Categorical(action_probs)
+    def learn(self):
+        for _ in range(self.n_epochs):
+            state_arr, next_state_arr, action_arr, old_prob_arr, vals_arr,\
+            reward_arr, dones_arr, batches = \
+                    self.memory.generate_batches()
 
-        action_logprobs = dist.log_prob(action)
-        dist_entropy = dist.entropy()
-        state_values = self.critic(state)
-        
-        return action_logprobs, state_values, dist_entropy
+            values = vals_arr
+            advantage = np.zeros(len(reward_arr), dtype=np.float32)
 
+            for t in range(len(reward_arr)-1):
+                discount = 1
+                a_t = 0
+                for k in range(t, len(reward_arr)-1):
+                    a_t += discount*(reward_arr[k] + self.gamma*values[k+1]*\
+                            (1-int(dones_arr[k])) - values[k])
+                    discount *= self.gamma*self.gae_lambda
+                advantage[t] = a_t
+            advantage = torch.tensor(advantage).to(self.actor.device)
 
+            values = torch.tensor(values).to(self.actor.device)
+            for batch in batches:
+                states = torch.tensor(state_arr[batch], dtype=torch.float).to(self.actor.device)
+                next_states = torch.tensor(next_state_arr[batch], dtype=torch.float).to(self.actor.device)
+                old_probs = torch.tensor(old_prob_arr[batch]).to(self.actor.device)
+                actions = torch.tensor(action_arr[batch]).to(self.actor.device)
 
+                dist = self.actor(states)
+                critic_value = self.critic(states)
 
+                critic_value = torch.squeeze(critic_value)
+                next_value = self.critic(next_states)
 
-class KANPPOAgent:
-    def __init__(self, config):
-        self.config = config
-        self.name = "KAN-PPO"
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.has_continuous_action_space = self.config['has_continuous_action_space']
+                new_probs = dist.log_prob(actions)
+                prob_ratio = new_probs.exp() / old_probs.exp()
+                #prob_ratio = (new_probs - old_probs).exp()
+                weighted_probs = advantage[batch] * prob_ratio
+                weighted_clipped_probs = torch.clamp(prob_ratio, 1-self.policy_clip,
+                        1+self.policy_clip)*advantage[batch]
+                actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
 
-        if self.has_continuous_action_space:
-            self.action_std = self.config['action_std_init']
-
-        self.gamma = self.config['gamma']
-        self.eps_clip = self.config['eps_clip']
-        self.K_epochs = self.config['K_epochs']
-        
-        self.buffer = RolloutBuffer()
-
-        self.policy = KANActorCritic(self.config['state_dim'], 
-                                  self.config['action_dim'], self.config['has_continuous_action_space'], ).to(self.device)
-        
-        self.optimizer = torch.optim.Adam([
-                        {'params': self.policy.actor.parameters(), 'lr': self.config['lr_actor']},
-                        {'params': self.policy.critic.parameters(), 'lr': self.config['lr_critic']}
-                    ])
-
-        self.policy_old = KANActorCritic(self.config['state_dim'], 
-                                      self.config['action_dim'], self.has_continuous_action_space).to(self.device)
-        
-        self.policy_old.load_state_dict(self.policy.state_dict())
-        
-        self.MseLoss = nn.MSELoss()
+                #returns = reward_arr + 0.99 * next_value * (1 - done_arr)
+                returns = advantage[batch] + values[batch]
+                critic_loss = (returns-critic_value)**2
+                critic_loss = critic_loss.mean()
 
 
-    def set_action_std(self, new_action_std):
-        
-        if self.has_continuous_action_space:
-            self.action_std = new_action_std
-            self.policy.set_action_std(new_action_std)
-            self.policy_old.set_action_std(new_action_std)
-        
-        else:
-            print("--------------------------------------------------------------------------------------------")
-            print("WARNING : Calling PPO::set_action_std() on discrete action space policy")
-            print("--------------------------------------------------------------------------------------------")
+                #entropy = dist.entropy().mean()
+                #total_loss = actor_loss + 0.5 * critic_loss - 0.01 * entropy
 
 
-    def decay_action_std(self, action_std_decay_rate, min_action_std):
-        print("--------------------------------------------------------------------------------------------")
+                total_loss = actor_loss + 0.5*critic_loss
+                self.actor.optimizer.zero_grad()
+                self.critic.optimizer.zero_grad()
+                total_loss.backward()
+                self.actor.optimizer.step()
+                self.critic.optimizer.step()
 
-        if self.has_continuous_action_space:
-            self.action_std = self.action_std - action_std_decay_rate
-            self.action_std = round(self.action_std, 4)
-            if (self.action_std <= min_action_std):
-                self.action_std = min_action_std
-                print("setting actor output action_std to min_action_std : ", self.action_std)
-            else:
-                print("setting actor output action_std to : ", self.action_std)
-            self.set_action_std(self.action_std)
+        self.memory.clear_memory()
 
-        else:
-            print("WARNING : Calling PPO::decay_action_std() on discrete action space policy")
-
-        print("--------------------------------------------------------------------------------------------")
-
-
-    def select_action(self, state):
-        if self.has_continuous_action_space:
-            with torch.no_grad():
-                state = torch.tensor(state, dtype=torch.float32).to(self.device)
-                action, action_logprob, state_val = self.policy_old.act(state)
-
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.detach().cpu().numpy().flatten()
-
-        else:
-            with torch.no_grad():
-                state = torch.tensor(state, dtype=torch.float32).to(self.device)
-                action, action_logprob, state_val = self.policy_old.act(state)
-            
-            self.buffer.states.append(state)
-            self.buffer.actions.append(action)
-            self.buffer.logprobs.append(action_logprob)
-            self.buffer.state_values.append(state_val)
-
-            return action.item()
-        
-
-    def update(self):
-
-        # Monte Carlo estimate of returns
-        rewards = []
-        discounted_reward = 0
-        for reward, is_terminal in zip(reversed(self.buffer.rewards), reversed(self.buffer.is_terminals)):
-            if is_terminal:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
-            
-        # Normalizing the rewards
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
-
-        # convert list to tensor
-        old_states = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
-        old_actions = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
-        old_logprobs = torch.squeeze(torch.stack(self.buffer.logprobs, dim=0)).detach().to(self.device)
-        old_state_values = torch.squeeze(torch.stack(self.buffer.state_values, dim=0)).detach().to(self.device)
-
-        # calculate advantages
-        advantages = rewards.detach() - old_state_values.detach()
-
-        # Optimize policy for K epochs
-        for _ in range(self.K_epochs):
-
-            # Evaluating old actions and values
-            logprobs, state_values, dist_entropy = self.policy.evaluate(old_states, old_actions)
-
-            # match state_values tensor dimensions with rewards tensor
-            state_values = torch.squeeze(state_values)
-            
-            # Finding the ratio (pi_theta / pi_theta__old)
-            ratios = torch.exp(logprobs - old_logprobs.detach())
-
-            # Finding Surrogate Loss   
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * advantages
-
-            # final loss of clipped objective PPO
-            loss = -torch.min(surr1, surr2) + 0.5 * self.MseLoss(state_values, rewards) - 0.01 * dist_entropy
-            
-            # take gradient step
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
-            
-        # Copy new weights into old policy
-        self.policy_old.load_state_dict(self.policy.state_dict())
-
-        # clear buffer
-        self.buffer.clear()
-
-
-    def save(self, checkpoint_path):
-        torch.save(self.policy_old.state_dict(), checkpoint_path)
-   
-
-    def load(self, checkpoint_path):
-        self.policy_old.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
-        self.policy.load_state_dict(torch.load(checkpoint_path, map_location=lambda storage, loc: storage))
