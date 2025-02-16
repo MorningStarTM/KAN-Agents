@@ -8,7 +8,7 @@ import gymnasium as gym
 from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
 from agents.ppo import PPOAgent
-from continous_ppo import ContinuousKANPPO
+from agents.continuous_ppo import KANPPOAgent, PPOAgent
 from utils.logger import CustomLogger
 import gymnasium as gym
 import os
@@ -191,7 +191,7 @@ class ContinousPPOTrainer:
         self.lr_critic = config['lr_critic']
         self.random_seed = config['random_seed']
         self.n_episodes = config['n_episodes']
-        self.i_episode = 0
+
 
         self.scores = []  # Stores total episode rewards
         self.timesteps = []  # Stores timestep count per episode
@@ -221,7 +221,7 @@ class ContinousPPOTrainer:
 
         # Checkpoint setup
         run_num_pretrained = 0
-        directory = "result"
+        directory = "models"
         os.makedirs(directory, exist_ok=True)
 
         directory = os.path.join(directory, self.env_name)
@@ -259,7 +259,6 @@ class ContinousPPOTrainer:
             logger.log("info", f"setting random seed to {self.random_seed}")
             torch.manual_seed(self.random_seed)
             np.random.seed(self.random_seed)
-            self.env.seed(self.random_seed)
 
     
     def train(self):
@@ -296,6 +295,38 @@ class ContinousPPOTrainer:
                 if self.has_continuous_action_space and time_step % self.action_std_decay_freq == 0:
                     self.agent.decay_action_std(self.action_std_decay_rate, self.min_action_std)
 
+                if time_step % self.log_freq == 0:
+
+                    # log average reward till last episode
+                    log_avg_reward = log_running_reward / log_running_episodes
+                    log_avg_reward = round(log_avg_reward, 4)
+
+                    log_f.write('{},{},{}\n'.format(i_episode, time_step, log_avg_reward))
+                    log_f.flush()
+
+                    log_running_reward = 0
+                    log_running_episodes = 0
+
+                if time_step % self.print_freq == 0:
+
+                    # print average reward till last episode
+                    print_avg_reward = print_running_reward / print_running_episodes
+                    print_avg_reward = round(print_avg_reward, 2)
+
+                    logger.log("info", f"Episode : {i_episode} \t\t Timestep : {time_step} \t\t Average Reward : {print_avg_reward}")
+
+                    print_running_reward = 0
+                    print_running_episodes = 0
+
+                if time_step % self.save_model_freq == 0:
+                    logger("--------------------------------------------------------------------------------------------")
+                    logger.log("info", f"saving model at : {self.checkpoint_path}")
+                    self.agent.save(self.checkpoint_path)
+                    logger.log("info","model saved")
+                    logger.log("info", f"Elapsed Time  :  {datetime.now().replace(microsecond=0) - start_time}")
+                    print("--------------------------------------------------------------------------------------------")
+
+
                 if done:
                     break
 
@@ -308,30 +339,7 @@ class ContinousPPOTrainer:
             log_running_episodes += 1
             i_episode += 1
 
-            # ✅ Log results (same as raw)
-            if time_step % self.log_freq == 0:
-                log_avg_reward = log_running_reward / max(log_running_episodes, 1)
-                log_avg_reward = round(log_avg_reward, 4)
-                log_f.write(f'{i_episode},{time_step},{log_avg_reward}\n')
-                log_f.flush()
-                log_running_reward = 0
-                log_running_episodes = 0
-
-            # ✅ Print results (same as raw)
-            if time_step % self.print_freq == 0:
-                print_avg_reward = print_running_reward / max(print_running_episodes, 1)
-                print_avg_reward = round(print_avg_reward, 2)
-                logger.log("info", f"Episode: {i_episode}, Timestep: {time_step}, Average Reward: {print_avg_reward}")
-                print_running_reward = 0
-                print_running_episodes = 0
-
-            # ✅ Save model checkpoint periodically
-            if time_step % self.save_model_freq == 0:
-                logger.log("info", f"saving model at : {self.checkpoint_path}")
-                self.agent.save(self.checkpoint_path)
-                logger.log("info", "model saved")
-                logger.log("info", f"Elapsed Time  : {datetime.now().replace(microsecond=0) - start_time}")
-
+            
         # ✅ Save final scores (unchanged from raw)
         np.save(f"{self.log_dir}/scores.npy", np.array(self.scores))
         logger.log("info", f"Scores saved in {self.log_dir}")
@@ -343,7 +351,7 @@ class ContinousPPOTrainer:
 
 
 
-    def train__(self):
+    def updated(self):
         start_time = datetime.now().replace(microsecond=0)
         logger.log("info", f"Started training at (GMT) : {start_time}")
 
@@ -358,7 +366,7 @@ class ContinousPPOTrainer:
         time_step = 0
         i_episode = 0
 
-        while i_episode in range(self.n_episodes):
+        while time_step <= self.max_training_timesteps:
             state, _ = self.env.reset()
             current_ep_reward = 0
 
