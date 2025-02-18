@@ -257,7 +257,7 @@ class Agent(nn.Module):
         if self.memory.mem_cent < self.batch_size:
             return
         
-        stae, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
+        state, action, reward, new_state, done = self.memory.sample_buffer(self.batch_size)
 
         reward = torch.tensor(reward, dtype=torch.float).to(self.actor.device)
         done = torch.tensor(done).to(self.actor.device)
@@ -276,5 +276,40 @@ class Agent(nn.Module):
         critic_value = torch.min(q1_new_policy, q2_new_policy)
         critic_value = critic_value.view(-1)
 
-        self.value_optimizer.zero_grad()
+        self.value.optimizer.zero_grad()
         value_target = critic_value - log_probs
+        value_loss = 0.5 * F.mse_loss(value, value_target)
+        value_loss.backward(retain_graph=True)
+        self.value.optimizer.step()
+
+
+        actions, log_probs = self.actor.sample_normal(state, reparameterize=True)
+        log_probs = log_probs.view(-1)
+        q1_new_policy = self.critic_1.forward(state, actions)
+        q2_new_policy = self.critic_2.forward(state, actions)
+        critic_value = torch.min(q1_new_policy, q2_new_policy)
+        critic_value = critic_value.view(-1)
+
+
+        actor_loss = log_probs - critic_value
+        actor_loss = torch.mean(actor_loss)
+        self.actor.optimizer.zero_grad()
+        actor_loss.backward(retain_graph=True)
+        self.actor.optimizer.step()
+
+
+        self.critic_1.optimizer.zero_grad()
+        self.critic_2.optimizer.zero_grad()
+        q_hat = (self.scale * reward) + (self.gamma * value_)
+        q1_old_policy = self.critic_1.forward(state, action).view(-1)
+        q2_old_policy = self.critic_2.forward(state, action).view(-1)
+        critic_1_loss = 0.5 * F.mse_loss(q1_old_policy, q_hat)
+        critic_2_loss = 0.5 * F.mse_loss(q2_old_policy, q_hat)
+
+        critic_loss = critic_1_loss + critic_2_loss
+        critic_loss.backward()
+        self.critic_1.optimizer.step()
+        self.critic_2.optimizer.step()
+
+
+        self.updated_network_parameters()
