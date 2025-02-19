@@ -9,6 +9,7 @@ from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
 from agents.ppo import PPOAgent
 from agents.continuous_ppo import KANPPOAgent, PPOAgent
+from agents.sac import SACAgent
 from utils.logger import CustomLogger
 import gymnasium as gym
 import os
@@ -168,7 +169,7 @@ class PPOTrainer:
 
 
 class ContinousPPOTrainer:
-    def __init__(self, agent:ContinuousKANPPO, env_name, config):
+    def __init__(self, agent:KANPPOAgent, env_name, config):
         self.agent = agent
         self.env_name = env_name
         self.config = config
@@ -261,6 +262,12 @@ class ContinousPPOTrainer:
             np.random.seed(self.random_seed)
 
     
+    def normalize_state(self, state):
+        state_mean = np.mean(state)  # Replace with precomputed mean
+        state_std = np.std(state) + 1e-8  # Add epsilon to avoid division by zero
+        return (state - state_mean) / state_std
+
+
     def train(self):
         start_time = datetime.now().replace(microsecond=0)
         logger.log("info", f"Started training at (GMT) : {start_time}")
@@ -277,11 +284,14 @@ class ContinousPPOTrainer:
 
         while time_step <= self.max_training_timesteps:
             state, _ = self.env.reset()
+            state = self.normalize_state(state)
+
             current_ep_reward = 0
 
             for t in range(1, self.max_ep_len + 1):
                 action = self.agent.select_action(state)
                 state, reward, done, _, _ = self.env.step(action)
+                state = self.normalize_state(state)
 
                 self.agent.buffer.rewards.append(reward)
                 self.agent.buffer.is_terminals.append(done)
@@ -473,10 +483,11 @@ class QTrainer:
 
             score = 0
             done = False
+            truncate = False
             observation,_ = self.env.reset()
-            while not done:
+            while not done:#(done or truncate):
                 action = self.agent.choose_action(observation)
-                observation_, reward, done, info, _ = self.env.step(action)
+                observation_, reward, done, truncate, _ = self.env.step(action)
                 score += reward
                 self.agent.store_transition(observation, action, reward, 
                                         observation_, done)
@@ -489,7 +500,8 @@ class QTrainer:
             avg_score = np.mean(self.scores[-100:])
             if self.best_score < score:
                 self.best_score = score
-                self.agent.save_model(f"models\\{self.agent.name}_{self.env_name}.pth")
+                self.agent.save_model(f"models\\{self.env_name}\\{self.agent.name}.pth")
+                logger.log("info", f"models\\{self.env_name}\\{self.agent.name}.pth")
 
             print('episode ', i, 'score %.2f' % score,
                     'average score %.2f' % avg_score,
@@ -503,9 +515,9 @@ class QTrainer:
         x = [i+1 for i in range(self.n_episode)]
         
         #plotLearning(x, scores, eps_history, filename)
-
-        np.save(f"{filename}_scores.npy", self.scores)
-        np.save(f"{filename}_eps_history.npy", self.eps_history)
+        os.makedirs(filename, exist_ok=True)
+        np.save(f"{filename}\\scores.npy", self.scores)
+        np.save(f"{filename}\\eps_history.npy", self.eps_history)
         logger.log(f"info", "result histories are saved")
         
     
@@ -521,3 +533,51 @@ class QTrainer:
 
         print(f"Results saved: {filename_prefix}_scores.npy, {filename_prefix}_eps_history.npy")
     
+
+
+
+
+class SACTrainer:
+    def __init__(self, agent:SACAgent, env_name:str) -> None:
+        self.agent = agent
+        self.env = gym.make(env_name)
+        self.best_score = float('-inf')
+
+        self.scores = []
+
+        self.checkpoint = os.path.join("models", env_name)
+        os.makedirs(self.checkpoint, exist_ok=True)
+        logger.log("info", f"{self.checkpoint} created for model")
+
+        self.result = os.path.join("result", self.agent.name, env_name)
+        os.makedirs(self.result, exist_ok=True)
+        logger.log("info", f"{self.result} created for model result")
+
+
+    def train(self, n_games):
+        for i in range(n_games):
+            observation, _ = self.env.reset()
+            done = False
+            truncate = False
+            score = 0
+
+            while not (done or truncate):
+                action = self.agent.choose_action(observation)
+                observation_, reward, done, truncate, _ = self.env.step(action)
+                score += reward
+                self.agent.remember(observation, action, reward, observation_, done)
+                self.agent.learn()
+                observation = observation_
+            self.scores.append(score)
+            avg_score = np.mean(self.scores[-100:])
+
+            if avg_score > self.best_score:
+                self.best_score = avg_score
+                self.agent.save_models(self.checkpoint)
+                logger.log("info", f"model saved at {self.checkpoint}")
+
+            print('episode ', i, 'score %.1f' % score, 'avg_score %.1f' % avg_score)
+
+        np.save(f"{self.result}\\score.npy", np.array(self.scores))
+        logger.log("info", f"Scores are saved in {self.result}")
+
