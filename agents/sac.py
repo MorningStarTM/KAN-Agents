@@ -11,8 +11,8 @@ class ReplayBuffer():
     def __init__(self, max_size, input_shape, n_actions):
         self.mem_size = max_size
         self.mem_cent = 0
-        self.state_memory = np.zeros((self.mem_size, *input_shape))
-        self.new_state_memory = np.zeros((self.mem_size, *input_shape))
+        self.state_memory = np.zeros((self.mem_size, input_shape))
+        self.new_state_memory = np.zeros((self.mem_size, input_shape))
         self.action_memory = np.zeros((self.mem_size, n_actions))
         self.reward_memory = np.zeros(self.mem_size)
         self.terminal_memory = np.zeros(self.mem_size, dtype=np.bool_)
@@ -53,9 +53,9 @@ class CriticNetwork(nn.Module):
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        
 
-        self.fc1 = nn.Linear(self.input_dims[0]+n_actions, 256)
+        self.fc1 = nn.Linear(self.input_dims+n_actions, 256)
         self.fc2 = nn.Linear(256, 256)
         self.q = nn.Linear(256, 1)
 
@@ -76,23 +76,24 @@ class CriticNetwork(nn.Module):
         return q
     
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         torch.save(self.state_dict(), self.checkpoint_file)
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         self.load_state_dict(torch.load(self.checkpoint_file))
 
 
 
 class ValueNetwork(nn.Module):
-    def __init__(self, beta, input_dims, name='Value', chkpt_dir='tmp/sac'):
+    def __init__(self, beta, input_dims, name='Value'):
         super(ValueNetwork, self).__init__()
         self.input_dims = input_dims
         self.name = name
-        self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        
 
-        self.fc1 = nn.Linear(*self.input_dims, 256)
+        self.fc1 = nn.Linear(self.input_dims, 256)
         self.fc2 = nn.Linear(256, 256)
         self.v = nn.Linear(256, 1)
 
@@ -111,25 +112,26 @@ class ValueNetwork(nn.Module):
         v = self.v(state_value)
         return v
     
-    def save_checkpoint(self):
+    def save_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         torch.save(self.state_dict(), self.checkpoint_file)
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         self.load_state_dict(torch.load(self.checkpoint_file))
 
 
 
 class ActorNetwork(nn.Module):
-    def __init__(self, alpha, input_dims, max_action, n_layers, n_actions, name='actor', chkpt_dir='tmp/sac'):
+    def __init__(self, alpha, input_dims, max_action, n_layers, n_actions, name='actor'):
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
         self.n_actions = n_actions
         self.name = name
-        self.checkpoint_dir = chkpt_dir
-        self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_sac')
+        
         self.max_action = max_action
         self.reparam_noise = 1e-6
-        self.hidden_layers = n_layers or [256, 256]
+        self.hidden_layers = n_layers if n_layers else [256, 256]
 
         layers = []
         input_size = self.input_dims
@@ -151,24 +153,27 @@ class ActorNetwork(nn.Module):
 
 
     def forward(self, state):
+        state = state.to(torch.float32)  # ✅ Ensure input is float32
         x = self.model(state)
 
         mu = self.mu(x)
         mu = torch.tanh(mu) * self.max_action  # Scale actions within [-max_action, max_action]
 
-        # Standard deviation (sigma) of the action
         sigma = self.sigma(x)
         sigma = torch.clamp(sigma, min=-20, max=2)  # Prevent extremely large values
         sigma = torch.exp(sigma)  # Convert to positive values (log standard deviation)
 
         return mu, sigma
+
     
 
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         torch.save(self.state_dict(), self.checkpoint_file)
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, checkpoint_dir):
+        self.checkpoint_file = os.path.join(checkpoint_dir, self.name+'_sac')
         self.load_state_dict(torch.load(self.checkpoint_file))
 
 
@@ -183,36 +188,38 @@ class ActorNetwork(nn.Module):
 
         action = torch.tanh(actions)* torch.tensor(self.max_action).to(self.device)
         log_probs = probabilities.log_prob(actions)
-        log_probs -= torch.log(1-action.pow(2) + self.reparam_noise)
+        log_probs -= torch.log(1-action.pow(2) + self.reparam_noise) #log_probs = log_probs.sum(1, keepdim=True) 
         log_probs = log_probs.sum(1, keepdim=True)
 
         return action, log_probs
     
 
+#alpha=0.0003, beta=0.0003, input_dims=[8], env=None, max_action=0.4, gamma=0.99, n_actions=2, max_size=100000, tau=0.005, batch_size=256, reward_sclae=2
+class SACAgent:
+    def __init__(self, config):
+        self.config = config
+        self.gamma = self.config['gamma']
+        self.tau = self.config['tau']
+        self.memory = ReplayBuffer(self.config['max_size'], self.config['input_dims'], self.config['n_actions'])
+        self.batch_size = self.config['batch_size']
+        self.n_actions = self.config['n_actions']
+        self.name = "SAC"
 
-class Agent(nn.Module):
-    def __init__(self, alpha=0.0003, beta=0.0003, input_dims=[8], env=None, gamma=0.99, n_actions=2, max_size=100000, tau=0.005, layer1_size=256, layer2_size=256, batch_size=256, reward_sclae=2):
-        self.gamma = gamma
-        self.tau = tau
-        self.memory = ReplayBuffer(max_size, input_dims, n_actions)
-        self.batch_size = batch_size
-        self.n_actions = n_actions
+        self.actor = ActorNetwork(alpha=self.config['alpha'], input_dims=self.config['input_dims'], n_actions=self.n_actions, n_layers=self.config['n_layers'], name='actor', max_action=self.config['max_action'])
+        self.critic_1 = CriticNetwork(self.config['beta'], self.config['input_dims'], n_actions=self.n_actions, name='critic_1')
+        self.critic_2 = CriticNetwork(self.config['beta'], self.config['input_dims'], n_actions=self.n_actions, name='critic_2')
+        self.value = ValueNetwork(self.config['beta'], self.config['input_dims'], name='value')
+        self.target_value = ValueNetwork(self.config['beta'], self.config['input_dims'], name='target_value')
 
-        self.actor = ActorNetwork(alpha, input_dims, n_actions=n_actions, name='actor', max_action=env.action_space.high)
-        self.critic_1 = CriticNetwork(beta, input_dims, n_actions=n_actions, name='critic_1')
-        self.critic_2 = CriticNetwork(beta, input_dims, n_actions=n_actions, name='critic_2')
-        self.value = ValueNetwork(beta, input_dims, name='value')
-        self.target_value = ValueNetwork(beta, input_dims, name='target_value')
-
-        self.scale = reward_sclae
-        self.update_network_parameter(tau=1)
+        self.scale = self.config['reward_sclae']
+        self.updated_network_parameters(tau=1)
 
 
     def choose_action(self, observation):
-        state = torch.tensor([observation]).to(self.actor.device)
+        state = torch.tensor([observation], dtype=torch.float32).to(self.actor.device)  # ✅ Fix: Convert to float32
         actions, _ = self.actor.sample_normal(state, reparameterize=False)
-
         return actions.cpu().detach().numpy()[0]
+
     
 
     def remember(self, state, action, reward, new_state, done):
@@ -235,20 +242,20 @@ class Agent(nn.Module):
         self.target_value.load_state_dict(value_state_dict)
 
 
-    def save_models(self):
-        self.actor.save_checkpoint()
-        self.value.save_checkpoint()
-        self.target_value.save_checkpoint()
-        self.critic_1.save_checkpoint()
-        self.critic_2.save_checkpoint()
+    def save_models(self, checkpoint):
+        self.actor.save_checkpoint(checkpoint)
+        self.value.save_checkpoint(checkpoint)
+        self.target_value.save_checkpoint(checkpoint)
+        self.critic_1.save_checkpoint(checkpoint)
+        self.critic_2.save_checkpoint(checkpoint)
         print("__________models saved__________")
 
-    def load_models(self):
-        self.actor.load_checkpoint()
-        self.value.load_checkpoint()
-        self.target_value.load_checkpoint()
-        self.critic_1.load_checkpoint()
-        self.critic_2.load_checkpoint()
+    def load_models(self, checkpoint):
+        self.actor.load_checkpoint(checkpoint)
+        self.value.load_checkpoint(checkpoint)
+        self.target_value.load_checkpoint(checkpoint)
+        self.critic_1.load_checkpoint(checkpoint)
+        self.critic_2.load_checkpoint(checkpoint)
         print("-------------model loaded--------------")
 
 
@@ -291,7 +298,7 @@ class Agent(nn.Module):
         critic_value = critic_value.view(-1)
 
 
-        actor_loss = log_probs - critic_value
+        actor_loss = log_probs - critic_value  #actor_loss = (log_probs - critic_value).mean()
         actor_loss = torch.mean(actor_loss)
         self.actor.optimizer.zero_grad()
         actor_loss.backward(retain_graph=True)
