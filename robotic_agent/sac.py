@@ -243,6 +243,7 @@ class DeterministicPolicy(nn.Module):
 class SAC(object):
     def __init__(self, num_inputs, action_space, config):
         self.config = config
+        self.name = "SAC"
         self.gamma = self.config['gamma']
         self.tau = self.config['tau']
         self.alpha = self.config['alpha']
@@ -342,9 +343,6 @@ class SAC(object):
 
     # Save model parameters
     def save_checkpoint(self, ckpt_path=None):
-        
-        os.makedirs(ckpt_path, exist_ok=True)
-        logger.log("info",f"Saving models to {ckpt_path}")
 
         ckpt_path = os.path.join(ckpt_path,"sac_checkpoint")
         logger.log("info",f"Saving models to {ckpt_path}")
