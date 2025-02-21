@@ -588,6 +588,8 @@ class SACTrainer(object):
                             updates += 1
 
                     next_state, reward, terminated, truncated, _ = self.env.step(action)  # Step
+                    if self.config['reward_normalize']:
+                        reward = reward / self.config['reward_norm_rate']
                     done = terminated or truncated
                     episode_steps += 1
                     total_numsteps += 1
@@ -610,8 +612,7 @@ class SACTrainer(object):
 
             logger.log("info",f"Episode: {i_episode}, total numsteps: {total_numsteps}, episode steps: {episode_steps}, reward: {round(episode_reward, 2)}")
 
-            print(100*"=")
-            logger.log("info", "Evaluating Agent")
+            
             if i_episode % 10 == 0 and self.config["eval"]:
                 avg_reward = 0.
                 episodes = 10
