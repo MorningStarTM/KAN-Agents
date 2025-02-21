@@ -9,10 +9,13 @@ from datetime import datetime
 from agents.dqn import DQNAgent, KDQNAgent
 from agents.ppo import PPOAgent
 from agents.continuous_ppo import KANPPOAgent, PPOAgent
-from agents.sac import SACAgent
+from agents.sac import SAC, ReplayMemory
 from utils.logger import CustomLogger
 import gymnasium as gym
 import os
+import itertools
+import torch
+from tqdm import tqdm
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 
@@ -537,47 +540,102 @@ class QTrainer:
 
 
 
-class SACTrainer:
-    def __init__(self, agent:SACAgent, env_name:str) -> None:
+class SACTrainer(object):
+    def __init__(self, agent:SAC, config) -> None:
         self.agent = agent
-        self.env = gym.make(env_name)
-        self.best_score = float('-inf')
+        self.config = config
+        self.env = gym.make(self.config['env_name'])
+        self.rb = ReplayMemory(config["replay_size"], config["seed"])
+        logger.log("info", "replay buffer initialized")
+
+        self.scores_path = os.path.join("results", self.agent.name, self.config['env_name'])
+        os.makedirs(self.scores_path, exist_ok=True)
+        logger.log("info", f"result folder {self.scores_path} created")
 
         self.scores = []
 
-        self.checkpoint = os.path.join("models", env_name)
-        os.makedirs(self.checkpoint, exist_ok=True)
-        logger.log("info", f"{self.checkpoint} created for model")
-
-        self.result = os.path.join("result", self.agent.name, env_name)
-        os.makedirs(self.result, exist_ok=True)
-        logger.log("info", f"{self.result} created for model result")
+        self.checkpoint_path = os.path.join("models", self.config['env_name'])
+        os.makedirs(self.checkpoint_path, exist_ok=True)
+        logger.log("info", f"{self.checkpoint_path} created for model checkpoint")
 
 
-    def train(self, n_games):
-        for i in range(n_games):
-            observation, _ = self.env.reset()
+        torch.manual_seed(123456)
+        np.random.seed(123456)
+
+
+    def train(self):
+        total_numsteps = 0
+        updates = 0
+        
+        for i_episode in itertools.count(1):
+            episode_reward = 0
+            episode_steps = 0
             done = False
-            truncate = False
-            score = 0
+            state, _ = self.env.reset()
 
-            while not (done or truncate):
-                action = self.agent.choose_action(observation)
-                observation_, reward, done, truncate, _ = self.env.step(action)
-                score += reward
-                self.agent.remember(observation, action, reward, observation_, done)
-                self.agent.learn()
-                observation = observation_
-            self.scores.append(score)
-            avg_score = np.mean(self.scores[-100:])
+            with tqdm(total=self.config["start_steps"], desc="Exploration Phase", disable=total_numsteps > self.config["start_steps"]) as pbar:
+                while not done:
+                    if self.config["start_steps"] > total_numsteps:
+                        action = self.env.action_space.sample()  # Sample random action
+                        pbar.update(1)
+                    else:
+                        action = self.agent.select_action(state)  # Sample action from policy
 
-            if avg_score > self.best_score:
-                self.best_score = avg_score
-                self.agent.save_models(self.checkpoint)
-                logger.log("info", f"model saved at {self.checkpoint}")
+                    if len(self.rb) > self.config["batch_size"]:
+                        # Number of updates per step in environment
+                        for _ in range(self.config["updates_per_step"]):
+                            self.agent.update_parameters(self.rb, self.config["batch_size"], updates)
+                            updates += 1
 
-            print('episode ', i, 'score %.1f' % score, 'avg_score %.1f' % avg_score)
+                    next_state, reward, terminated, truncated, _ = self.env.step(action)  # Step
+                    done = terminated or truncated
+                    episode_steps += 1
+                    total_numsteps += 1
+                    episode_reward += reward
 
-        np.save(f"{self.result}\\score.npy", np.array(self.scores))
-        logger.log("info", f"Scores are saved in {self.result}")
+                    if total_numsteps % 10000 == 0:
+                        
+                        self.agent.save_checkpoint(self.checkpoint_path)
+                        logger.log("info", f"Model saved at {total_numsteps} steps: {self.checkpoint_path}")
+
+
+                    # Ignore the "done" signal if it comes from hitting the time horizon.
+                    mask = 1 if truncated else float(not terminated)
+                    self.rb.push(state, action, reward, next_state, mask)  # Append transition to memory
+                    state = next_state
+
+            self.scores.append(episode_reward)  
+            if total_numsteps > self.config["num_steps"]:
+                break
+
+            logger.log("info",f"Episode: {i_episode}, total numsteps: {total_numsteps}, episode steps: {episode_steps}, reward: {round(episode_reward, 2)}")
+
+            print(100*"=")
+            logger.log("info", "Evaluating Agent")
+            if i_episode % 10 == 0 and self.config["eval"]:
+                avg_reward = 0.
+                episodes = 10
+                for _ in range(episodes):
+                    state, _ = self.env.reset()
+                    episode_reward = 0
+                    done = False
+                    while not done:
+                        action = self.agent.select_action(state, evaluate=True)
+                        next_state, reward, terminated, truncated, _ = self.env.step(action)
+                        done = terminated or truncated
+                        episode_reward += reward
+                        state = next_state
+                    avg_reward += episode_reward
+                avg_reward /= episodes
+                print("----------------------------------------")
+                logger.log("info", f"Test Episodes: {episodes}, Avg. Reward: {round(avg_reward, 2)}")
+                print("----------------------------------------")
+
+        self.env.close()
+        logger.log("info", "✅ Training completed")
+
+        np.save(f"{self.scores_path}\\scores.npy", np.array(self.scores))
+        logger.log("info", f"Final Scores saved at: {self.scores_path}")
+
+        
 
