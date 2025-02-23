@@ -6,6 +6,7 @@ KAN-Agents is a deep reinforcement learning repository implementing **Kolmogorov
 - **Proximal Policy Optimization (PPO)**
 - **KAN-PPO (PPO with Kolmogorov-Arnold Network)**
 - **Soft Actor-Critic (SAC) - [Work in Progress]**
+- **Decision Transformer (DT) - [Work in Progress]**
 
 ## 🚀 Supported Environments
 The following environments have been successfully trained using **PPO and KAN-PPO**:
@@ -32,7 +33,7 @@ Below is the **performance comparison** of PPO and KAN-PPO across different envi
 |---------|-------------|
 |![App Screenshot](https://github.com/MorningStarTM/KAN-Agents/blob/eec799bbfb12b33e10642b6eb480a1a6b0bc556e/comparison/InvertedPendulum_episode_scores.png)|![App Screenshot](https://github.com/MorningStarTM/KAN-Agents/blob/eec799bbfb12b33e10642b6eb480a1a6b0bc556e/comparison/LunarLander-v3_episode_scores.png)
 | **InvertedPendulum** |
-|---------|-------------|
+|---------|
 |![App Screenshot](https://github.com/MorningStarTM/KAN-Agents/blob/eec799bbfb12b33e10642b6eb480a1a6b0bc556e/comparison/Walker2d_episode_scores.png)|
 
 
@@ -41,7 +42,6 @@ Below is the **performance comparison** of PPO and KAN-PPO across different envi
 KAN-Agents/
 │── agents/                # PPO, KAN-PPO implementations
 │── comparison/            # Comparison results and analysis
-|── robotic_agent
 │── results/               # Performance metrics and logs
 │── train.py               # Training scripts for agents
 │── test.py                # Evaluation scripts
@@ -51,7 +51,7 @@ KAN-Agents/
 ## 📦 Installation & Setup
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/KAN-Agents.git
+   git clone https://github.com/MorningStarTM/KAN-Agents.git
    cd KAN-Agents
    ```
 
@@ -74,3 +74,8 @@ This project is released under the **MIT License**.
 ⭐ **Star this repository** to stay updated on future developments!
 
 
+## Acknowledgments
+
+This project was inspired by the work of **[Blealtan](https://github.com/Blealtan)**, who implemented the **Efficient Kolmogorov–Arnold Networks (KAN) Layer**. You can check out their original repository here:
+
+🔗 [Blealtan's GitHub Repository](https://github.com/Blealtan)
